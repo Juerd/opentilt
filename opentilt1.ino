@@ -2,10 +2,11 @@
 #include <avr/sleep.h>
 #include <AcceleroMMA7361.h>
 #include <SPI.h>
-#include "nRF24L01.h"
+#include <nRF24L01.h>
 #include <RF24.h>
 #include <TimedButton.h>
 #include <Entropy.h>
+#include "color.h"
 
 const double   max_shock   = 2;     // centiG per millisecond?
 // XXX master should send its value to the slaves
@@ -13,6 +14,12 @@ const int      max_players = 32;    // 4 bytes of SRAM per player!
 
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
+
+const Color    color_setup  = white;
+const Color    color_master = gold;
+const Color    color_error  = red;
+const Color    color_hello  = lightgreen;
+const Color    color_player = royalblue;
 
 const int pin_button = 2;   // interrupt
 const int pin_led_r  = 3;   // pwm
@@ -25,15 +32,6 @@ const int pin_acc_x  = A6;  // non-nano doesn't have A6+A7
 const int pin_acc_y  = A7;
 const int pin_acc_z  = A5;
 
-const int off     = 0;
-const int red     = 1;
-const int green   = 2;
-const int blue    = 4;
-const int yellow  = red | green;
-const int cyan    = green | blue;
-const int magenta = blue | red;
-const int white   = red | green | blue;
-
 const uint8_t msg_hello  = 100;
 const uint8_t msg_config = 200;
 
@@ -43,10 +41,10 @@ TimedButton     button(pin_button);
 
 //const uint64_t pipes[2] = { 0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL };
 
-void led(int color, int intensity = 255) {
-    analogWrite(pin_led_r, color & red   ? intensity : 0);
-    analogWrite(pin_led_g, color & green ? intensity : 0);
-    analogWrite(pin_led_b, color & blue  ? intensity : 0);
+void led(Color color) {
+    analogWrite(pin_led_r, color.r);
+    analogWrite(pin_led_g, color.g);
+    analogWrite(pin_led_b, color.b);
 }
 
 void pin2_isr() {
@@ -88,7 +86,7 @@ union Param {
     struct {
         uint16_t prefix;
         uint8_t  id;
-        uint8_t  color;
+        Color    color;
     } config;
 };
 
@@ -104,7 +102,7 @@ void setup() {
     pinMode(pin_led_r, OUTPUT);
     pinMode(pin_led_g, OUTPUT);
     pinMode(pin_led_b, OUTPUT);
-    led(white);
+    led(color_setup);
 
     digitalWrite(pin_power, HIGH);
 
@@ -157,7 +155,7 @@ bool master_loop() {
 
     switch (state) {
         case MASTER_SETUP: {
-            led(magenta);
+            led(color_master);
             rf.openReadingPipe(1, master);
             rf.startListening();
             Serial.println("I am master.");
@@ -169,20 +167,20 @@ bool master_loop() {
             if (received && payload.msg == msg_hello) {
                 delay(10);
                 param.config.id     = ++num_players;
-                param.config.color  = blue;
+                param.config.color  = color_player;
                 param.config.prefix = master;  // XXX
                 send(
                     master + payload.param.hello.id,
                     msg_config,
                     param
                 );
-                led(yellow);
+                led(color_hello);
                 wait_until = millis() + 500;
                 players[ num_players ] = millis();
             }
 
-            if (millis() >= wait_until) {
-                led(magenta);
+            if (wait_until && millis() >= wait_until) {
+                led(color_master);
             }
 
             break;
@@ -199,7 +197,7 @@ void loop() {
     unsigned long bla;
     int ok;
     static int msg = 42;
-    static int color;
+    static Color color;
     static unsigned long wait_until;
 
     if (button.down(long_press)) {
@@ -226,7 +224,8 @@ void loop() {
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
-            led(green);
+            led(color_error);
+            // color will be overwritten immediately, if a master replies.
 
             rf.openReadingPipe(1, my_addr);
             rf.startListening();
@@ -244,7 +243,6 @@ void loop() {
         }
 
         case GET_CONFIG: {
-            led(red);
             if (millis() >= wait_until) {
                 am_master = true;
                 state = MASTER_SETUP;
@@ -266,7 +264,7 @@ void loop() {
         }
 
         case PRE_GAME: {
-            led(color, ((millis() % 1000) < 500) ? 0 : 40);
+            led(((millis() % 1000) < 100) ? off : color);
             break;
         }
 
