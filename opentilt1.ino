@@ -50,17 +50,23 @@ void led(Color color) {
 void pin2_isr() {
     sleep_disable();
     detachInterrupt(0);
-    while(digitalRead(2) == LOW);
-    delay(20);
 }
 
 void power_down() {
+    AGAIN:
+    wdt_disable();
     sleep_enable();
     attachInterrupt(0, pin2_isr, LOW);
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     cli(); sleep_bod_disable(); sei();
     sleep_cpu();
     sleep_disable();
+    delay(5);  // workaround: sometimes millis() is 0...
+    unsigned long min_time = millis() + long_press;
+    delay(10);  // for more reliable readings
+    while (digitalRead(pin_button) == LOW && millis() < min_time);
+    if (millis() < min_time) goto AGAIN;
+    reset();
 }
 
 void reset() {
@@ -204,8 +210,8 @@ void loop() {
         led(off);
         while (button.down());
         digitalWrite(pin_power, LOW);
+        delay(1000);  // XXX debounce
         power_down();
-        reset();
     }
 
     // If received is already 1, it's because we're master and sending a
