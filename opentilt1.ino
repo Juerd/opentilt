@@ -9,14 +9,16 @@
 #include "color.h"
 
 const double   max_shock   = 2;     // centiG per millisecond?
+const double   go_shock    = 20;    // to start the game
 // XXX master should send its value to the slaves
 const int      max_players = 32;    // 4 bytes of SRAM per player!
 
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
+const int      time_start  = 1000;
 
 const Color    color_setup  = white;
-const Color    color_master = gold;
+const Color    color_master = magenta;
 const Color    color_error  = red;
 const Color    color_hello  = lightgreen;
 const Color    color_player = royalblue;
@@ -32,8 +34,17 @@ const int pin_acc_x  = A6;  // non-nano doesn't have A6+A7
 const int pin_acc_y  = A7;
 const int pin_acc_z  = A5;
 
+// broadcast (master to clients)
+const uint8_t msg_start_game = 1;
+
+// client to master
 const uint8_t msg_hello  = 100;
+
+// master to client
 const uint8_t msg_config = 200;
+
+const double max_shock2 = max_shock * max_shock;
+const double go_shock2  = go_shock  * go_shock;
 
 AcceleroMMA7361 acc;
 RF24            rf(pin_rf_ce, pin_rf_cs);
@@ -58,9 +69,11 @@ void power_down() {
     sleep_enable();
     attachInterrupt(0, pin2_isr, LOW);
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    ADCSRA |= (0<<ADEN);  // disable ADC
     cli(); sleep_bod_disable(); sei();
     sleep_cpu();
     sleep_disable();
+    ADCSRA |= (1<<ADEN);  // enable ADC
     delay(5);  // workaround: sometimes millis() is 0...
     unsigned long min_time = millis() + long_press;
     delay(10);  // for more reliable readings
@@ -90,10 +103,12 @@ union Param {
         uint16_t id;
     } hello;
     struct {
-        uint16_t prefix;
         uint8_t  id;
         Color    color;
     } config;
+    struct {
+        uint32_t time;
+    } start_game;
 };
 
 struct Payload {
@@ -126,8 +141,8 @@ void setup() {
 enum state_enum {
     HELLO,
     GET_CONFIG,
-    MASTER_SETUP, MASTER_INVITE,
-    PRE_GAME,
+    MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
+    PRE_GAME, GAME_SETUP, GAME
 } state = HELLO;
 
 bool send(long int destination, uint8_t msg, union Param param) {
@@ -152,12 +167,16 @@ static Param param;  // for sending
 static long int my_addr;
 static unsigned int me;
 static long int master = 0xFF000000L;
+static float shock2;
+static bool am_master;
 
 bool master_loop() {
     static int num_players = 1;
     static unsigned long wait_until = 0;
-    static unsigned long players[ max_players ];
+    static unsigned long alive[ max_players ];
+    static unsigned int addr[ max_players ];
     bool ok;
+    int i;
 
     switch (state) {
         case MASTER_SETUP: {
@@ -172,9 +191,8 @@ bool master_loop() {
         case MASTER_INVITE: {
             if (received && payload.msg == msg_hello) {
                 delay(10);
-                param.config.id     = ++num_players;
+                param.config.id     = num_players;
                 param.config.color  = color_player;
-                param.config.prefix = master;  // XXX
                 send(
                     master + payload.param.hello.id,
                     msg_config,
@@ -182,13 +200,31 @@ bool master_loop() {
                 );
                 led(color_hello);
                 wait_until = millis() + 500;
-                players[ num_players ] = millis();
+                alive[ num_players ] = millis();
+                addr[ num_players ] = payload.param.hello.id;
+                num_players++;
             }
 
             if (wait_until && millis() >= wait_until) {
                 led(color_master);
             }
 
+            if (shock2 > go_shock2) {
+                state = MASTER_GAME_SETUP;
+            }
+
+            break;
+        }
+        case MASTER_GAME_SETUP: {
+            param.start_game.time = time_start;
+            for (i = 1; i < num_players; i++)  // i am 0
+            send(
+                master + addr[ i ],
+                msg_start_game,
+                param
+            );
+
+            state = MASTER_INVITE;// PRE_GAME;
             break;
         }
     }
@@ -196,34 +232,10 @@ bool master_loop() {
     return false;
 }
 
-
-void loop() {
-    static bool am_master;
-
-    unsigned long bla;
-    int ok;
-    static int msg = 42;
+void client_loop() {
     static Color color;
     static unsigned long wait_until;
-
-    if (button.down(long_press)) {
-        led(off);
-        while (button.down());
-        digitalWrite(pin_power, LOW);
-        delay(1000);  // XXX debounce
-        power_down();
-    }
-
-    // If received is already 1, it's because we're master and sending a
-    // message to ourselves :)
-    if (!received && rf.available()) {
-        ok = rf.read(&payload, sizeof(payload));
-        rf.startListening();
-        Serial.println("RECEIVED: ");
-        Serial.print("seq "); Serial.println(payload.seq);
-        Serial.print("msg "); Serial.println(payload.msg);
-        received = 1;
-    }
+    int ok;
 
     switch (state) {
         case HELLO: {
@@ -256,8 +268,6 @@ void loop() {
 
             if (received && payload.msg == msg_config) {
                 me = payload.param.config.id;
-                my_addr = payload.param.config.prefix + me;
-                rf.openReadingPipe(1, my_addr);
                 color = payload.param.config.color;
                 Serial.print("I am player ");
                 Serial.println(me);
@@ -271,12 +281,67 @@ void loop() {
 
         case PRE_GAME: {
             led(((millis() % 1000) < 100) ? off : color);
+            if (received && payload.msg == msg_start_game) {
+                state = GAME_SETUP;
+                wait_until = millis() + payload.param.start_game.time;
+            }
             break;
         }
 
+        case GAME_SETUP: {
+            led(green);
+            if (millis() > wait_until) {
+                led(white);
+            }
+        }
+    }
+}
+
+void loop() {
+
+    int ok;
+    static int oldx = 0, oldy = 0, oldz = 0;
+    static unsigned long oldt;
+    int x = acc.getXAccel();
+    int y = acc.getYAccel();
+    int z = acc.getZAccel();
+    unsigned long t = millis();
+    static bool firstloop = true;
+    
+    int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
+    oldx = x; oldy = y; oldz = z; oldt = t;
+
+    if (firstloop) {
+        firstloop = false;
+        return;
     }
 
+    shock2 = (double) (dx*dx + dy*dy + dz*dz)/dt;
+    //Serial.println(shock2);
+
+    if (button.down(long_press)) {
+        led(off);
+        while (button.down());
+        digitalWrite(pin_power, LOW);
+        delay(1000);  // XXX debounce
+        power_down();
+    }
+
+    // If received is already 1, it's because we're master and sending a
+    // message to ourselves :)
+    if (!received && rf.available()) {
+        ok = rf.read(&payload, sizeof(payload));
+        Serial.println("RECEIVED: ");
+        Serial.print("seq "); Serial.println(payload.seq);
+        Serial.print("msg "); Serial.println(payload.msg);
+        received = 1;
+    }
+
+
+    client_loop();
     if (am_master) received = master_loop();
+    else received = 0;
+
     delay(5);
 }
 
