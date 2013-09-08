@@ -209,8 +209,6 @@ void loop() {
         Serial.print("p2 "); Serial.println(payload.p2);
         Serial.print("p3 "); Serial.println(payload.p3);
         received = 1;
-    } else {
-        received = 0;
     }
 
     switch (state) {
