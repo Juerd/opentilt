@@ -81,12 +81,21 @@ int get_free_memory() {
     return free_memory;
 }
 
+union Param {
+    struct {
+        uint16_t id;
+    } hello;
+    struct {
+        uint16_t prefix;
+        uint8_t  id;
+        uint8_t  color;
+    } config;
+};
+
 struct Payload {
     uint8_t seq;
     uint8_t msg;
-    uint16_t p1;
-    uint16_t p2;
-    uint16_t p3;
+    Param param;
 };
 
 void setup() {
@@ -105,6 +114,7 @@ void setup() {
 
     rf.begin();
     rf.setRetries(10, 10);
+    Serial.println(sizeof(Payload));
     rf.setPayloadSize(sizeof(Payload));
 }
 
@@ -116,20 +126,15 @@ enum state_enum {
     PRE_GAME,
 } state = HELLO;
 
-bool send(long int destination, uint8_t msg, int p1 = 0, int p2 = 0, int p3 = 0) {
+bool send(long int destination, uint8_t msg, union Param param) {
     static Payload p;
     p.seq++;
     p.msg = msg;
-    p.p1 = p1;
-    p.p2 = p2;
-    p.p3 = p3;
+    p.param = param;
     Serial.println("SENDING: ");
     Serial.print("to "); Serial.println(destination, HEX);
     Serial.print("seq "); Serial.println(p.seq);
     Serial.print("msg "); Serial.println(p.msg);
-    Serial.print("p1 "); Serial.println(p.p1);
-    Serial.print("p2 "); Serial.println(p.p2);
-    Serial.print("p3 "); Serial.println(p.p3);
     rf.openWritingPipe(destination);
     rf.stopListening();
     bool ok = rf.write(&p, sizeof(p));
@@ -137,11 +142,12 @@ bool send(long int destination, uint8_t msg, int p1 = 0, int p2 = 0, int p3 = 0)
     return ok;
 }
 
-bool received = 0;
+static bool received = 0;
 static Payload payload;
+static Param param;  // for sending
 static long int my_addr;
-unsigned int me;
-long int master     = 0xFF000000L;
+static unsigned int me;
+static long int master = 0xFF000000L;
 
 bool master_loop() {
     static int num_players = 1;
@@ -162,7 +168,14 @@ bool master_loop() {
         case MASTER_INVITE: {
             if (received && payload.msg == msg_hello) {
                 delay(10);
-                send(master + payload.p1, msg_config, ++num_players, blue);
+                param.config.id     = ++num_players;
+                param.config.color  = blue;
+                param.config.prefix = master;  // XXX
+                send(
+                    master + payload.param.hello.id,
+                    msg_config,
+                    param
+                );
                 led(yellow);
                 wait_until = millis() + 500;
                 players[ num_players ] = millis();
@@ -205,9 +218,6 @@ void loop() {
         Serial.println("RECEIVED: ");
         Serial.print("seq "); Serial.println(payload.seq);
         Serial.print("msg "); Serial.println(payload.msg);
-        Serial.print("p1 "); Serial.println(payload.p1);
-        Serial.print("p2 "); Serial.println(payload.p2);
-        Serial.print("p3 "); Serial.println(payload.p3);
         received = 1;
     }
 
@@ -220,7 +230,8 @@ void loop() {
 
             rf.openReadingPipe(1, my_addr);
             rf.startListening();
-            ok = send(master, msg_hello, me);
+            param.hello.id = me;
+            ok = send(master, msg_hello, param);
             rf.startListening();
             if (!ok) {
                 am_master = true;
@@ -240,10 +251,10 @@ void loop() {
             }
 
             if (received && payload.msg == msg_config) {
-                me = payload.p1;
-                my_addr = master + me;
+                me = payload.param.config.id;
+                my_addr = payload.param.config.prefix + me;
                 rf.openReadingPipe(1, my_addr);
-                color = payload.p2;
+                color = payload.param.config.color;
                 Serial.print("I am player ");
                 Serial.println(me);
                 Serial.println(get_free_memory());
