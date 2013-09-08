@@ -15,13 +15,15 @@ const int      max_players = 32;    // 4 bytes of SRAM per player!
 
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
-const int      time_start  = 1000;
+const int      time_start  = 4000;
 
 const Color    color_setup  = white;
 const Color    color_master = magenta;
 const Color    color_error  = red;
 const Color    color_hello  = lightgreen;
 const Color    color_player = royalblue;
+const Color    color_dead   = coral;
+const Color    color_win    = lightgreen;
 
 const int pin_button = 2;   // interrupt
 const int pin_led_r  = 3;   // pwm
@@ -39,9 +41,11 @@ const uint8_t msg_start_game = 1;
 
 // client to master
 const uint8_t msg_hello  = 100;
+const uint8_t msg_status = 101;
 
 // master to client
 const uint8_t msg_config = 200;
+const uint8_t msg_you_win = 201;
 
 const double max_shock2 = max_shock * max_shock;
 const double go_shock2  = go_shock  * go_shock;
@@ -109,6 +113,10 @@ union Param {
     struct {
         uint32_t time;
     } start_game;
+    struct {
+        uint8_t id;
+        uint8_t alive;
+    } status;
 };
 
 struct Payload {
@@ -139,11 +147,12 @@ void setup() {
 
 
 enum state_enum {
-    HELLO,
-    GET_CONFIG,
+    HELLO, GET_CONFIG,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    PRE_GAME, GAME_SETUP, GAME
+    PRE_GAME, GAME_SETUP, GAME, WIN
 } state = HELLO;
+
+static long int broadcast = 0xFFFFFFFFL;
 
 bool send(long int destination, uint8_t msg, union Param param) {
     static Payload p;
@@ -157,6 +166,7 @@ bool send(long int destination, uint8_t msg, union Param param) {
     rf.openWritingPipe(destination);
     rf.stopListening();
     bool ok = rf.write(&p, sizeof(p));
+    rf.openReadingPipe(0, broadcast);
     rf.startListening();
     return ok;
 }
@@ -181,11 +191,22 @@ bool master_loop() {
     switch (state) {
         case MASTER_SETUP: {
             led(color_master);
+            rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, master);
             rf.startListening();
             Serial.println("I am master.");
+
+
             state = MASTER_INVITE;
             Serial.println(get_free_memory(), DEC);
+
+            alive[0] = 1;
+            param.config.id = 0;
+            param.config.color = blue;
+            payload.msg = msg_config;
+            payload.param = param;
+
+            return true;
         }
 
         case MASTER_INVITE: {
@@ -200,7 +221,7 @@ bool master_loop() {
                 );
                 led(color_hello);
                 wait_until = millis() + 500;
-                alive[ num_players ] = millis();
+                alive[ num_players ] = 1; // millis();
                 addr[ num_players ] = payload.param.hello.id;
                 num_players++;
             }
@@ -217,25 +238,64 @@ bool master_loop() {
         }
         case MASTER_GAME_SETUP: {
             param.start_game.time = time_start;
-            for (i = 1; i < num_players; i++)  // i am 0
             send(
-                master + addr[ i ],
+                broadcast,
                 msg_start_game,
                 param
             );
 
-            state = MASTER_INVITE;// PRE_GAME;
-            break;
+            payload.msg = msg_start_game;
+            payload.param = param;
+            state = PRE_GAME;
+
+            return true;
+        }
+        case GAME: {
+            if (received && payload.msg == msg_status) {
+                alive[ payload.param.status.id ] = payload.param.status.alive;
+
+                int num_alive = 0;
+                unsigned long survivor;
+                for (i = 0; i < num_players; i++) {
+                    if (alive[i]) {
+                        num_alive++;
+                        survivor = i;
+                    }
+                    Serial.print(i, DEC);
+                    Serial.print(" ");
+                    Serial.println(alive[i]);
+                }
+                if (num_alive == 1) {
+                    if (survivor == 0) {  // that's me!
+                        payload.msg = msg_you_win;
+                        return true;
+                    } else {
+                        send( master + addr[survivor], msg_you_win, param );
+                    }
+                }
+            }
+
         }
     }
 
     return false;
 }
 
-void client_loop() {
+bool client_loop() {
     static Color color;
     static unsigned long wait_until;
+    static bool have_setup = false;
+    static bool alive = true;
     int ok;
+
+    if (received && payload.msg == msg_config) {
+        me = payload.param.config.id;
+        color = payload.param.config.color;
+        Serial.print("I am player ");
+        Serial.println(me);
+        Serial.println(get_free_memory());
+        have_setup = true;
+    }
 
     switch (state) {
         case HELLO: {
@@ -245,6 +305,7 @@ void client_loop() {
             led(color_error);
             // color will be overwritten immediately, if a master replies.
 
+            rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, my_addr);
             rf.startListening();
             param.hello.id = me;
@@ -265,16 +326,7 @@ void client_loop() {
                 am_master = true;
                 state = MASTER_SETUP;
             }
-
-            if (received && payload.msg == msg_config) {
-                me = payload.param.config.id;
-                color = payload.param.config.color;
-                Serial.print("I am player ");
-                Serial.println(me);
-                Serial.println(get_free_memory());
-                led(color);
-                state = PRE_GAME;
-            }
+            if (have_setup) state = PRE_GAME;
 
             break;
         }
@@ -289,12 +341,43 @@ void client_loop() {
         }
 
         case GAME_SETUP: {
-            led(green);
-            if (millis() > wait_until) {
-                led(white);
-            }
+            led(((millis() % 200) < 100) ? off : color);
+
+            if (millis() > wait_until) state = GAME;
+            break;
         }
+
+        case GAME: {
+            if (received && payload.msg == msg_you_win) {
+                state = WIN;
+                break;
+            }
+
+            if (shock2 > max_shock2) {
+                led(color_dead);
+                param.status.id    = me;
+                param.status.alive = alive = false;
+                send(broadcast, msg_status, param);
+
+                // XXX ugly.
+                if (am_master) {
+                    payload.msg = msg_status;
+                    payload.param = param;
+                    return true;
+                }
+            } else if (alive) {
+                led(color);
+            }
+            break;
+        }
+
+        case WIN: {
+            led(color_win);
+        }
+
     }
+
+    return false;
 }
 
 void loop() {
@@ -338,7 +421,13 @@ void loop() {
     }
 
 
-    client_loop();
+    if (!received) {
+        received = client_loop();
+    } else if (payload.msg < 100 || payload.msg >= 200) {
+        // don't overwrite 'received' if mesage is for master.
+        received = client_loop();
+    }
+
     if (am_master) received = master_loop();
     else received = 0;
 
