@@ -1,52 +1,274 @@
-#include <AcceleroMMA7361.h>
 #include <avr/wdt.h>
 #include <avr/sleep.h>
+#include <AcceleroMMA7361.h>
+#include <SPI.h>
+#include "nRF24L01.h"
+#include <RF24.h>
+#include <TimedButton.h>
+#include <Entropy.h>
 
-const double limit = 2;  // centiG per millisecond?
-#define RLED 3
-#define GLED 5
-#define BLED 6
+const double   max_shock   = 2;     // centiG per millisecond?
+// XXX master should send its value to the slaves
+const int      max_players = 32;    // 4 bytes of SRAM per player!
 
-#define RED 1
-#define GREEN 2
-#define BLUE 4
-#define WHITE (RED | GREEN | BLUE)
-#define YELLOW (RED | GREEN)
-#define MAGENTA (RED | BLUE)
-#define CYAN (GREEN | BLUE)
+const int      long_press  = 2000;  // power off
+const int      timeout     = 1000;
 
-AcceleroMMA7361 accelero;
+const int pin_button = 2;   // interrupt
+const int pin_led_r  = 3;   // pwm
+const int pin_led_g  = 5;   // pwm
+const int pin_led_b  = 6;   // pwm
+const int pin_power  = 7;   // powers 3.3V LDO for mma7361 and nrf24l01+
+const int pin_rf_ce  = 8;
+const int pin_rf_cs  = 10;  // mosi = 11, miso = 12, clk = 13
+const int pin_acc_x  = A6;  // non-nano doesn't have A6+A7
+const int pin_acc_y  = A7;
+const int pin_acc_z  = A5;
 
-void led(int color) {
-  digitalWrite(RLED, color & RED);
-  digitalWrite(GLED, color & GREEN);
-  digitalWrite(BLED, color & BLUE);
+const int off     = 0;
+const int red     = 1;
+const int green   = 2;
+const int blue    = 4;
+const int yellow  = red | green;
+const int cyan    = green | blue;
+const int magenta = blue | red;
+const int white   = red | green | blue;
+
+const uint8_t msg_hello  = 100;
+const uint8_t msg_config = 200;
+
+AcceleroMMA7361 acc;
+RF24            rf(pin_rf_ce, pin_rf_cs);
+TimedButton     button(pin_button);
+
+//const uint64_t pipes[2] = { 0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL };
+
+void led(int color, int intensity = 255) {
+    analogWrite(pin_led_r, color & red   ? intensity : 0);
+    analogWrite(pin_led_g, color & green ? intensity : 0);
+    analogWrite(pin_led_b, color & blue  ? intensity : 0);
 }
+
+void pin2_isr() {
+    sleep_disable();
+    detachInterrupt(0);
+    while(digitalRead(2) == LOW);
+    delay(20);
+}
+
+void power_down() {
+    sleep_enable();
+    attachInterrupt(0, pin2_isr, LOW);
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    cli(); sleep_bod_disable(); sei();
+    sleep_cpu();
+    sleep_disable();
+}
+
+void reset() {
+    wdt_enable(WDTO_30MS);
+    while (42);
+}
+
+extern int __bss_end;
+extern void *__brkval;
+
+int get_free_memory() {
+    int free_memory;
+    if((int)__brkval == 0)
+         free_memory = ((int)&free_memory) - ((int)&__bss_end);
+    else free_memory = ((int)&free_memory) - ((int)__brkval);
+    return free_memory;
+}
+
+struct Payload {
+    uint8_t seq;
+    uint8_t msg;
+    uint16_t p1;
+    uint16_t p2;
+    uint16_t p3;
+};
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(7, OUTPUT);
-  digitalWrite(7, HIGH);
-  
-  pinMode(RLED, OUTPUT);
-  pinMode(GLED, OUTPUT);
-  pinMode(BLED, OUTPUT);
+    Serial.begin(115200);
+    pinMode(pin_power, OUTPUT);
+    pinMode(pin_led_r, OUTPUT);
+    pinMode(pin_led_g, OUTPUT);
+    pinMode(pin_led_b, OUTPUT);
+    led(white);
 
-  led(RED); delay(100);
-  led(GREEN); delay(100);
-  led(BLUE); delay(100);
-  led(YELLOW); delay(100);
-  led(MAGENTA); delay(100);
-  led(CYAN); delay(100);
-  led(WHITE); delay(100);
+    digitalWrite(pin_power, HIGH);
 
-  delay(200);
-  accelero.begin(NULL, NULL, NULL, NULL, A6, A5, A7);
-  //accelero.setSensitivity(HIGH);
-  
-  led(BLUE);
+    Entropy.Initialize();
+
+    acc.begin(NULL, NULL, NULL, NULL, pin_acc_x, pin_acc_y, pin_acc_z);
+
+    rf.begin();
+    rf.setRetries(10, 10);
+    rf.setPayloadSize(sizeof(Payload));
 }
 
+
+enum state_enum {
+    HELLO,
+    GET_CONFIG,
+    MASTER_SETUP, MASTER_INVITE,
+    PRE_GAME,
+} state = HELLO;
+
+bool send(long int destination, uint8_t msg, int p1 = 0, int p2 = 0, int p3 = 0) {
+    static Payload p;
+    p.seq++;
+    p.msg = msg;
+    p.p1 = p1;
+    p.p2 = p2;
+    p.p3 = p3;
+    Serial.println("SENDING: ");
+    Serial.print("to "); Serial.println(destination, HEX);
+    Serial.print("seq "); Serial.println(p.seq);
+    Serial.print("msg "); Serial.println(p.msg);
+    Serial.print("p1 "); Serial.println(p.p1);
+    Serial.print("p2 "); Serial.println(p.p2);
+    Serial.print("p3 "); Serial.println(p.p3);
+    rf.openWritingPipe(destination);
+    rf.stopListening();
+    bool ok = rf.write(&p, sizeof(p));
+    rf.startListening();
+    return ok;
+}
+
+bool received = 0;
+static Payload payload;
+static long int my_addr;
+unsigned int me;
+long int master     = 0xFF000000L;
+
+bool master_loop() {
+    static int num_players = 1;
+    static unsigned long wait_until = 0;
+    static unsigned long players[ max_players ];
+    bool ok;
+
+    switch (state) {
+        case MASTER_SETUP: {
+            led(magenta);
+            rf.openReadingPipe(1, master);
+            rf.startListening();
+            Serial.println("I am master.");
+            state = MASTER_INVITE;
+            Serial.println(get_free_memory(), DEC);
+        }
+
+        case MASTER_INVITE: {
+            if (received && payload.msg == msg_hello) {
+                delay(10);
+                send(master + payload.p1, msg_config, ++num_players, blue);
+                led(yellow);
+                wait_until = millis() + 500;
+                players[ num_players ] = millis();
+            }
+
+            if (millis() >= wait_until) {
+                led(magenta);
+            }
+
+            break;
+        }
+    }
+
+    return false;
+}
+
+
+void loop() {
+    static bool am_master;
+
+    unsigned long bla;
+    int ok;
+    static int msg = 42;
+    static int color;
+    static unsigned long wait_until;
+
+    if (button.down(long_press)) {
+        led(off);
+        while (button.down());
+        digitalWrite(pin_power, LOW);
+        power_down();
+        reset();
+    }
+
+    // If received is already 1, it's because we're master and sending a
+    // message to ourselves :)
+    if (!received && rf.available()) {
+        ok = rf.read(&payload, sizeof(payload));
+        rf.startListening();
+        Serial.println("RECEIVED: ");
+        Serial.print("seq "); Serial.println(payload.seq);
+        Serial.print("msg "); Serial.println(payload.msg);
+        Serial.print("p1 "); Serial.println(payload.p1);
+        Serial.print("p2 "); Serial.println(payload.p2);
+        Serial.print("p3 "); Serial.println(payload.p3);
+        received = 1;
+    } else {
+        received = 0;
+    }
+
+    switch (state) {
+        case HELLO: {
+            me = Entropy.random(0xFFFF);
+            my_addr = master + me;
+
+            led(green);
+
+            rf.openReadingPipe(1, my_addr);
+            rf.startListening();
+            ok = send(master, msg_hello, me);
+            rf.startListening();
+            if (!ok) {
+                am_master = true;
+                state = MASTER_SETUP;
+                break;
+            }
+            state = GET_CONFIG;
+            wait_until = millis() + timeout;
+            break;
+        }
+
+        case GET_CONFIG: {
+            led(red);
+            if (millis() >= wait_until) {
+                am_master = true;
+                state = MASTER_SETUP;
+            }
+
+            if (received && payload.msg == msg_config) {
+                me = payload.p1;
+                my_addr = master + me;
+                rf.openReadingPipe(1, my_addr);
+                color = payload.p2;
+                Serial.print("I am player ");
+                Serial.println(me);
+                Serial.println(get_free_memory());
+                led(color);
+                state = PRE_GAME;
+            }
+
+            break;
+        }
+
+        case PRE_GAME: {
+            led(color, ((millis() % 1000) < 500) ? 0 : 40);
+            break;
+        }
+
+    }
+
+    if (am_master) received = master_loop();
+    delay(5);
+}
+
+
+/*
 int oldx, oldy, oldz, oldt;
 bool firstloop = true;
 
@@ -76,4 +298,7 @@ void loop() {
   }
  
   delay(10);
-}
+}*/
+
+
+// vim: ft=cpp
