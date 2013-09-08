@@ -1,0 +1,10 @@
+No documentation yet. Stay tuned.
+
+Requirements:
+- Arduino Nano v3
+- Arduino Uno bootloader (optiboot)
+- MMA7361
+- nRF24l01+
+- RF24 fork at https://github.com/gcopeland/RF24
+- AcceleroMMA7361 at https://code.google.com/p/mma7361-library/
+- Entropy at http://code.google.com/p/avr-hardware-random-number-generation/
