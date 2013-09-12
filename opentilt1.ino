@@ -28,6 +28,7 @@ const Color    color_hello  = lightgreen;
 const Color    color_player = royalblue;
 const Color    color_dead   = coral;
 const Color    color_win    = lightgreen;
+const Color    color_single = gold;  // single player mode
 
 const int pin_button = 2;   // interrupt
 const int pin_led_r  = 3;   // pwm
@@ -51,6 +52,7 @@ const uint8_t msg_status = 101;
 // master to client
 const uint8_t msg_config = 200;
 const uint8_t msg_you_win = 201;
+const uint8_t msg_you_die = 202;
 
 const float shock_dead2 = shock_dead * shock_dead;
 const float shock_start2  = shock_start  * shock_start;
@@ -113,6 +115,7 @@ union Param {
     struct {
         uint8_t  id;
         Color    color;
+        uint32_t broadcast;
     } config;
     struct {
         uint32_t time;
@@ -154,7 +157,7 @@ enum state_enum {
     COMM_ERROR,
     HELLO, GET_CONFIG,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    PRE_GAME, GAME_SETUP, GAME, GAME_OVER
+    PRE_GAME, GAME_START, GAME, GAME_OVER
 } state = HELLO;
 
 int oldstate = -1;
@@ -205,6 +208,7 @@ bool master_loop() {
     switch (state) {
         case MASTER_SETUP: {
             led(color_master);
+            broadcast = 0x96960000L + Entropy.random(0xFFFF);
             rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, master);
             rf.startListening();
@@ -215,13 +219,7 @@ bool master_loop() {
             state = MASTER_INVITE;
             Serial.println(get_free_memory(), DEC);
 
-            alive[0] = 1;
-            param.config.id = 0;
-            param.config.color = blue;
-            payload.msg = msg_config;
-            payload.param = param;
-
-            return true;
+            break;
         }
 
         case MASTER_INVITE: {
@@ -229,6 +227,7 @@ bool master_loop() {
                 delay(10);
                 param.config.id    = num_players;
                 param.config.color = color_player;
+                param.config.broadcast = broadcast;
                 send(
                     master + payload.param.hello.id,
                     msg_config,
@@ -245,13 +244,21 @@ bool master_loop() {
             }
 
             if (shock2 > shock_start2) {
+                param.config.id = 0;
+                param.config.color =
+                    num_players == 1
+                    ? color_single
+                    : color_player;
+                payload.msg = msg_config;
+                payload.param = param;
+
                 state = MASTER_GAME_SETUP;
+                return true;
             }
 
             break;
         }
         case MASTER_GAME_SETUP: {
-            for (i = 0; i < num_players; i++) alive[i] = true;
 
             param.start_game.time = time_start;
             send(
@@ -260,40 +267,63 @@ bool master_loop() {
                 param
             );
 
+
             payload.msg = msg_start_game;
             payload.param = param;
             state = PRE_GAME;
+
+            for (i = 0; i < num_players; i++)
+                alive[i] = millis() + time_start;
 
             return true;
         }
         case GAME:
         case GAME_OVER: {
-            if (received && payload.msg == msg_status) {
-                alive[ payload.param.status.id ] = payload.param.status.alive;
-
-                int num_alive = 0;
-                unsigned long survivor;
-                for (i = 0; i < num_players; i++) {
-                    if (alive[i]) {
-                        num_alive++;
-                        survivor = i;
-                    }
-                    Serial.print(i, DEC);
-                    Serial.print(" ");
-                    Serial.println(alive[i]);
-                }
-                if (num_alive == 1) {
-                    if (survivor == 0) {  // that's me!
-                        payload.msg = msg_you_win;
-                        return true;
-                    } else {
-                        send( master + addr[survivor], msg_you_win, param );
-                    }
-                }
-            }
             if (state == GAME_OVER && shock2 > shock_start2) {
                 state = MASTER_GAME_SETUP;
+                break;
             }
+
+            if (received && payload.msg == msg_status) {
+                int id = payload.param.status.id;
+                if (payload.param.status.alive) {
+                    if (alive[id]) {
+                        alive[ payload.param.status.id ] = millis();
+                    } else {
+                        // In case you hadn't noticed, you were already dead.
+                        // (e.g. communication timeout)
+                        send(master + id, msg_you_die, param);
+                    }
+                } else {
+                    alive[ id ] = 0;
+                }
+            }
+
+            if (num_players < 2) break;  // No winners in single player :)
+
+            int num_alive = 0;
+            unsigned long survivor;
+            for (i = 0; i < num_players; i++) {
+                if (i ? (alive[i] > millis() - time_comm_timeout) : alive[i]) {
+                    num_alive++;
+                    survivor = i;
+                } else if (alive[i]) {
+                    Serial.print(i, DEC);
+                    Serial.println(" timed out.");
+                    Serial.println(alive[i]);
+                    Serial.println(millis());
+                    alive[i] = 0;
+                }
+            }
+            if (num_alive == 1) {
+                if (survivor == 0) {  // that's me!
+                    payload.msg = msg_you_win;
+                    return true;
+                } else {
+                    send( master + addr[survivor], msg_you_win, param );
+                }
+            }
+
 
         }
     }
@@ -307,11 +337,17 @@ bool client_loop() {
     static bool have_setup = false;
     static bool alive = true;
     static unsigned long heartbeat_received;
+    static unsigned long next_heartbeat;
     int ok;
 
     if (received && payload.msg == msg_config) {
         me = payload.param.config.id;
         color = payload.param.config.color;
+        if (!am_master) {
+            broadcast = payload.param.config.broadcast;
+            rf.openReadingPipe(0, broadcast);
+            rf.startListening();
+        }
         Serial.print("I am player ");
         Serial.println(me);
         Serial.println(get_free_memory());
@@ -322,9 +358,17 @@ bool client_loop() {
         heartbeat_received = millis();
     }
 
-    if (!am_master && state >= PRE_GAME
-        && millis() > heartbeat_received + time_comm_timeout) {
-        state = COMM_ERROR;
+    if (!am_master && state >= PRE_GAME) {
+        if (millis() > heartbeat_received + time_comm_timeout)
+            state = COMM_ERROR;
+
+        if (millis() > next_heartbeat && state >= GAME) {
+            // XXX Randomize interval to spread RF clashes?
+            next_heartbeat = millis() + time_heartbeat;
+            param.status.id    = me;
+            param.status.alive = alive;
+            send(master, msg_status, param);
+        }
     }
 
     switch (state) {
@@ -349,7 +393,7 @@ bool client_loop() {
 
             delay(wait_until);
 
-            rf.openReadingPipe(0, broadcast);
+            rf.openReadingPipe(0, broadcast);  // needed, but why?
             rf.openReadingPipe(1, my_addr);
             rf.startListening();
             param.hello.id = me;
@@ -378,13 +422,13 @@ bool client_loop() {
         case PRE_GAME: {
             led(((millis() - state_change) % 1000 < 100) ? off : color);
             if (received && payload.msg == msg_start_game) {
-                state = GAME_SETUP;
+                state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
             }
             break;
         }
 
-        case GAME_SETUP: {
+        case GAME_START: {
             led(((millis() - state_change) % 200 < 100) ? off : color);
 
             if (millis() > wait_until) state = GAME;
@@ -394,6 +438,10 @@ bool client_loop() {
         case GAME: {
             if (received && payload.msg == msg_you_win) {
                 alive = true;
+                state = GAME_OVER;
+                break;
+            } else if (received && payload.msg == msg_you_die) {
+                alive = false;
                 state = GAME_OVER;
                 break;
             }
@@ -430,7 +478,7 @@ bool client_loop() {
                 )
             );
             if (received && payload.msg == msg_start_game) {
-                state = GAME_SETUP;
+                state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
             }
             break;
