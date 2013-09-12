@@ -18,7 +18,8 @@ const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
 
-const Color    color_setup  = white;
+const Color    color_setup1 = gray50;
+const Color    color_setup2 = white;
 const Color    color_master = magenta;
 const Color    color_error  = red;
 const Color    color_hello  = lightgreen;
@@ -109,7 +110,6 @@ union Param {
     struct {
         uint8_t  id;
         Color    color;
-        uint32_t time;
     } config;
     struct {
         uint32_t time;
@@ -132,7 +132,7 @@ void setup() {
     pinMode(pin_led_r, OUTPUT);
     pinMode(pin_led_g, OUTPUT);
     pinMode(pin_led_b, OUTPUT);
-    led(color_setup);
+    led(color_setup1);
 
     digitalWrite(pin_power, HIGH);
 
@@ -182,7 +182,7 @@ static unsigned int me;
 static long int master = 0x69690000L;
 static float shock2;
 static bool am_master;
-static unsigned long state_changed;
+static unsigned long state_change;
 
 bool master_loop() {
     static int num_players = 1;
@@ -198,6 +198,7 @@ bool master_loop() {
             rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, master);
             rf.startListening();
+
             Serial.println("I am master.");
 
 
@@ -207,7 +208,6 @@ bool master_loop() {
             alive[0] = 1;
             param.config.id = 0;
             param.config.color = blue;
-            param.config.time = millis();
             payload.msg = msg_config;
             payload.param = param;
 
@@ -219,7 +219,6 @@ bool master_loop() {
                 delay(10);
                 param.config.id    = num_players;
                 param.config.color = color_player;
-                param.config.time  = millis();
                 send(
                     master + payload.param.hello.id,
                     msg_config,
@@ -297,17 +296,14 @@ bool client_loop() {
     static unsigned long wait_until;
     static bool have_setup = false;
     static bool alive = true;
-    static signed long timediff;
     int ok;
 
     if (received && payload.msg == msg_config) {
         me = payload.param.config.id;
         color = payload.param.config.color;
-        timediff = millis() - payload.param.config.time;
         Serial.print("I am player ");
         Serial.println(me);
         Serial.println(get_free_memory());
-        Serial.println(payload.param.config.time);
         have_setup = true;
     }
 
@@ -316,8 +312,8 @@ bool client_loop() {
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
-            led(color_error);
-            // color will be overwritten immediately, if a master replies.
+            led(color_setup2);
+            delay(Entropy.random(1500));
 
             rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, my_addr);
@@ -346,7 +342,7 @@ bool client_loop() {
         }
 
         case PRE_GAME: {
-            led(((millis() - timediff) % 1000 < 100) ? off : color);
+            led(((millis() - state_change) % 1000 < 100) ? off : color);
             if (received && payload.msg == msg_start_game) {
                 state = GAME_SETUP;
                 wait_until = millis() + payload.param.start_game.time;
@@ -355,7 +351,7 @@ bool client_loop() {
         }
 
         case GAME_SETUP: {
-            led(((millis() - timediff) % 200 < 100) ? off : color);
+            led(((millis() - state_change) % 200 < 100) ? off : color);
 
             if (millis() > wait_until) state = GAME;
             break;
@@ -391,11 +387,11 @@ bool client_loop() {
 
         case GAME_OVER: {
             led(
-                am_master && (millis() % 2000 < 1000)
+                am_master && (millis() % 5000 < 1000)
                 ? color_master
                 : (
                     alive
-                    ? ( (millis() - timediff) % 300 < 100 ? off : color_win)
+                    ? ( (millis() - state_change) % 300 < 100 ? off : color_win)
                     : color_dead
                 )
             );
@@ -423,7 +419,7 @@ void loop() {
     static bool firstloop = true;
 
     if (state != oldstate) {
-        state_changed = millis();
+        state_change = millis();
         oldstate = state;
     }
     
