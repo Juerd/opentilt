@@ -17,6 +17,8 @@ const int      max_players = 32;    // 4 bytes of SRAM per player!
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
+const int      time_heartbeat = 800;
+const int      time_comm_timeout = 3 * time_heartbeat + 100;
 
 const Color    color_setup1 = gray50;
 const Color    color_setup2 = white;
@@ -39,6 +41,7 @@ const int pin_acc_y  = A7;
 const int pin_acc_z  = A5;
 
 // broadcast (master to clients)
+const uint8_t msg_heartbeat  = 0;
 const uint8_t msg_start_game = 1;
 
 // client to master
@@ -148,6 +151,7 @@ void setup() {
 
 
 enum state_enum {
+    COMM_ERROR,
     HELLO, GET_CONFIG,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
     PRE_GAME, GAME_SETUP, GAME, GAME_OVER
@@ -189,8 +193,14 @@ bool master_loop() {
     static unsigned long wait_until = 0;
     static unsigned long alive[ max_players ];
     static unsigned int addr[ max_players ];
+    static unsigned long next_heartbeat = millis() + time_heartbeat;
     bool ok;
     int i;
+
+    if (millis() > next_heartbeat) {
+        send(broadcast, msg_heartbeat, param);
+        next_heartbeat = millis() + time_heartbeat;
+    }
 
     switch (state) {
         case MASTER_SETUP: {
@@ -296,6 +306,7 @@ bool client_loop() {
     static unsigned long wait_until;
     static bool have_setup = false;
     static bool alive = true;
+    static unsigned long heartbeat_received;
     int ok;
 
     if (received && payload.msg == msg_config) {
@@ -305,15 +316,38 @@ bool client_loop() {
         Serial.println(me);
         Serial.println(get_free_memory());
         have_setup = true;
+        heartbeat_received = millis();
+    }
+    else if (received && payload.msg == msg_heartbeat) {
+        heartbeat_received = millis();
+    }
+
+    if (!am_master && state >= PRE_GAME
+        && millis() > heartbeat_received + time_comm_timeout) {
+        state = COMM_ERROR;
     }
 
     switch (state) {
+        case COMM_ERROR: {
+            digitalWrite(pin_power, LOW);
+            led(millis() % 200 < 100 ? off : color_error);
+            break;
+        }
         case HELLO: {
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
+
+            wait_until = Entropy.random(1500);  // because random is slow
+
             led(color_setup2);
-            delay(Entropy.random(1500));
+
+            while(millis() < time_comm_timeout) {
+                // Force comm timeout on clients if we were master in
+                // our previous life.
+            }
+
+            delay(wait_until);
 
             rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, my_addr);
@@ -442,6 +476,7 @@ void loop() {
         power_down();
     }
 
+
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
     if (!received && rf.available()) {
@@ -451,7 +486,6 @@ void loop() {
         Serial.print("msg "); Serial.println(payload.msg);
         received = 1;
     }
-
 
     if (!received) {
         received = client_loop();
