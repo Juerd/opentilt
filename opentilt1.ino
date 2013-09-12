@@ -375,6 +375,11 @@ bool client_loop() {
         case COMM_ERROR: {
             digitalWrite(pin_power, LOW);
             led(millis() % 200 < 100 ? off : color_error);
+
+            if (received && payload.msg == msg_start_game) {
+                state = GAME_START;
+                wait_until = millis() + payload.param.start_game.time;
+            }
             break;
         }
         case HELLO: {
@@ -385,12 +390,6 @@ bool client_loop() {
             wait_until = Entropy.random(1500);  // because random is slow
 
             led(color_setup2);
-
-            while(millis() < time_comm_timeout) {
-                // Force comm timeout on clients if we were master in
-                // our previous life.
-            }
-
             delay(wait_until);
 
             rf.openReadingPipe(0, broadcast);  // needed, but why?
