@@ -8,9 +8,10 @@
 #include <Entropy.h>
 #include "color.h"
 
-const double   max_shock   = 2;     // centiG per millisecond?
-const double   go_shock    = 20;    // to start the game
 // XXX master should send its value to the slaves
+const float   shock_dead   = 2;     // centiG per millisecond?
+const float   shock_start  = 30;    // to start the game
+
 const int      max_players = 32;    // 4 bytes of SRAM per player!
 
 const int      long_press  = 2000;  // power off
@@ -47,14 +48,12 @@ const uint8_t msg_status = 101;
 const uint8_t msg_config = 200;
 const uint8_t msg_you_win = 201;
 
-const double max_shock2 = max_shock * max_shock;
-const double go_shock2  = go_shock  * go_shock;
+const float shock_dead2 = shock_dead * shock_dead;
+const float shock_start2  = shock_start  * shock_start;
 
 AcceleroMMA7361 acc;
 RF24            rf(pin_rf_ce, pin_rf_cs);
 TimedButton     button(pin_button);
-
-//const uint64_t pipes[2] = { 0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL };
 
 void led(Color color) {
     analogWrite(pin_led_r, color.r);
@@ -102,6 +101,7 @@ int get_free_memory() {
     return free_memory;
 }
 
+
 union Param {
     struct {
         uint16_t id;
@@ -109,6 +109,7 @@ union Param {
     struct {
         uint8_t  id;
         Color    color;
+        uint32_t time;
     } config;
     struct {
         uint32_t time;
@@ -149,10 +150,12 @@ void setup() {
 enum state_enum {
     HELLO, GET_CONFIG,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    PRE_GAME, GAME_SETUP, GAME, WIN
+    PRE_GAME, GAME_SETUP, GAME, GAME_OVER
 } state = HELLO;
 
-static long int broadcast = 0xFFFFFFFFL;
+int oldstate = -1;
+
+static long int broadcast = 0x96969696L;
 
 bool send(long int destination, uint8_t msg, union Param param) {
     static Payload p;
@@ -176,9 +179,10 @@ static Payload payload;
 static Param param;  // for sending
 static long int my_addr;
 static unsigned int me;
-static long int master = 0xFF000000L;
+static long int master = 0x69690000L;
 static float shock2;
 static bool am_master;
+static unsigned long state_changed;
 
 bool master_loop() {
     static int num_players = 1;
@@ -203,6 +207,7 @@ bool master_loop() {
             alive[0] = 1;
             param.config.id = 0;
             param.config.color = blue;
+            param.config.time = millis();
             payload.msg = msg_config;
             payload.param = param;
 
@@ -212,8 +217,9 @@ bool master_loop() {
         case MASTER_INVITE: {
             if (received && payload.msg == msg_hello) {
                 delay(10);
-                param.config.id     = num_players;
-                param.config.color  = color_player;
+                param.config.id    = num_players;
+                param.config.color = color_player;
+                param.config.time  = millis();
                 send(
                     master + payload.param.hello.id,
                     msg_config,
@@ -221,7 +227,6 @@ bool master_loop() {
                 );
                 led(color_hello);
                 wait_until = millis() + 500;
-                alive[ num_players ] = 1; // millis();
                 addr[ num_players ] = payload.param.hello.id;
                 num_players++;
             }
@@ -230,13 +235,15 @@ bool master_loop() {
                 led(color_master);
             }
 
-            if (shock2 > go_shock2) {
+            if (shock2 > shock_start2) {
                 state = MASTER_GAME_SETUP;
             }
 
             break;
         }
         case MASTER_GAME_SETUP: {
+            for (i = 0; i < num_players; i++) alive[i] = true;
+
             param.start_game.time = time_start;
             send(
                 broadcast,
@@ -250,7 +257,8 @@ bool master_loop() {
 
             return true;
         }
-        case GAME: {
+        case GAME:
+        case GAME_OVER: {
             if (received && payload.msg == msg_status) {
                 alive[ payload.param.status.id ] = payload.param.status.alive;
 
@@ -274,6 +282,9 @@ bool master_loop() {
                     }
                 }
             }
+            if (state == GAME_OVER && shock2 > shock_start2) {
+                state = MASTER_GAME_SETUP;
+            }
 
         }
     }
@@ -286,14 +297,17 @@ bool client_loop() {
     static unsigned long wait_until;
     static bool have_setup = false;
     static bool alive = true;
+    static signed long timediff;
     int ok;
 
     if (received && payload.msg == msg_config) {
         me = payload.param.config.id;
         color = payload.param.config.color;
+        timediff = millis() - payload.param.config.time;
         Serial.print("I am player ");
         Serial.println(me);
         Serial.println(get_free_memory());
+        Serial.println(payload.param.config.time);
         have_setup = true;
     }
 
@@ -332,7 +346,7 @@ bool client_loop() {
         }
 
         case PRE_GAME: {
-            led(((millis() % 1000) < 100) ? off : color);
+            led(((millis() - timediff) % 1000 < 100) ? off : color);
             if (received && payload.msg == msg_start_game) {
                 state = GAME_SETUP;
                 wait_until = millis() + payload.param.start_game.time;
@@ -341,7 +355,7 @@ bool client_loop() {
         }
 
         case GAME_SETUP: {
-            led(((millis() % 200) < 100) ? off : color);
+            led(((millis() - timediff) % 200 < 100) ? off : color);
 
             if (millis() > wait_until) state = GAME;
             break;
@@ -349,30 +363,47 @@ bool client_loop() {
 
         case GAME: {
             if (received && payload.msg == msg_you_win) {
-                state = WIN;
+                alive = true;
+                state = GAME_OVER;
                 break;
             }
 
-            if (shock2 > max_shock2) {
-                led(color_dead);
+            if (shock2 > shock_dead2) {
+                alive = false;
+                state = GAME_OVER;
+
                 param.status.id    = me;
-                param.status.alive = alive = false;
-                send(broadcast, msg_status, param);
+                param.status.alive = alive;
 
                 // XXX ugly.
                 if (am_master) {
                     payload.msg = msg_status;
                     payload.param = param;
                     return true;
+                } else {
+                    send(master, msg_status, param);
                 }
-            } else if (alive) {
+            } else { // if (millis() > wait_until) {
                 led(color);
             }
             break;
         }
 
-        case WIN: {
-            led(color_win);
+        case GAME_OVER: {
+            led(
+                am_master && (millis() % 2000 < 1000)
+                ? color_master
+                : (
+                    alive
+                    ? ( (millis() - timediff) % 300 < 100 ? off : color_win)
+                    : color_dead
+                )
+            );
+            if (received && payload.msg == msg_start_game) {
+                state = GAME_SETUP;
+                wait_until = millis() + payload.param.start_game.time;
+            }
+            break;
         }
 
     }
@@ -390,6 +421,11 @@ void loop() {
     int z = acc.getZAccel();
     unsigned long t = millis();
     static bool firstloop = true;
+
+    if (state != oldstate) {
+        state_changed = millis();
+        oldstate = state;
+    }
     
     int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
     oldx = x; oldy = y; oldz = z; oldt = t;
@@ -399,7 +435,7 @@ void loop() {
         return;
     }
 
-    shock2 = (double) (dx*dx + dy*dy + dz*dz)/dt;
+    shock2 = (float) (dx*dx + dy*dy + dz*dz)/dt;
     //Serial.println(shock2);
 
     if (button.down(long_press)) {
@@ -433,39 +469,5 @@ void loop() {
 
     delay(5);
 }
-
-
-/*
-int oldx, oldy, oldz, oldt;
-bool firstloop = true;
-
-void loop() {
-  int x = accelero.getXAccel();
-  int y = accelero.getYAccel();
-  int z = accelero.getZAccel();
-  
-  int t = millis();
-  int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
-  oldx = x; oldy = y; oldz = z, oldt = t;
- 
-  if (firstloop) {
-    firstloop = false;
-    return;
-  }
-  int d2 = dx*dx + dy*dy + dz*dz;
-
-  double shock = (double) d2/dt;
- 
-  if (shock > (limit*limit)) {
-    // dood
-    led(RED);
-    delay(3000);
-    wdt_enable(WDTO_30MS);
-    while(1);
-  }
- 
-  delay(10);
-}*/
-
 
 // vim: ft=cpp
