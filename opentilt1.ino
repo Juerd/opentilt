@@ -267,14 +267,12 @@ bool master_loop() {
                 param
             );
 
+            for (i = 0; i < num_players; i++)
+                alive[i] = millis() + time_start + time_heartbeat;
 
             payload.msg = msg_start_game;
             payload.param = param;
             state = PRE_GAME;
-
-            for (i = 0; i < num_players; i++)
-                alive[i] = millis() + time_start;
-
             return true;
         }
         case GAME:
@@ -376,6 +374,7 @@ bool client_loop() {
             digitalWrite(pin_power, LOW);
             led(millis() % 200 < 100 ? off : color_error);
 
+            // VVV doesn't work...
             if (received && payload.msg == msg_start_game) {
                 state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
@@ -430,7 +429,10 @@ bool client_loop() {
         case GAME_START: {
             led(((millis() - state_change) % 200 < 100) ? off : color);
 
-            if (millis() > wait_until) state = GAME;
+            if (millis() > wait_until) {
+                alive = true;
+                state = GAME;
+            }
             break;
         }
 
