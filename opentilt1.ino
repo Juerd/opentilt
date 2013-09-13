@@ -470,7 +470,7 @@ bool client_loop() {
 
         case GAME_OVER: {
             led(
-                am_master && (millis() % 5000 < 1000)
+                am_master && (millis() % 5000 < 500)
                 ? color_master
                 : (
                     alive
