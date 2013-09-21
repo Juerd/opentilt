@@ -75,11 +75,13 @@ void pin2_isr() {
 void power_down() {
     AGAIN:
     wdt_disable();
-    sleep_enable();
+    sleep_enable();    cli(); //sleep_bod_disable(); 
+    sei();
     attachInterrupt(0, pin2_isr, LOW);
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     ADCSRA |= (0<<ADEN);  // disable ADC
-    cli(); sleep_bod_disable(); sei();
+    cli(); //sleep_bod_disable(); 
+    sei();
     sleep_cpu();
     sleep_disable();
     ADCSRA |= (1<<ADEN);  // enable ADC
@@ -176,6 +178,13 @@ bool send(long int destination, uint8_t msg, union Param param) {
     rf.openWritingPipe(destination);
     rf.stopListening();
     bool ok = rf.write(&p, sizeof(p));
+    // If packet is a broadcast, send another 9 times with 5ms delay
+    if (destination == broadcast) {
+      for (int broadcast_nr = 0; broadcast_nr < 2; broadcast_nr++) {
+        delay(3);
+        bool ok = rf.write(&p, sizeof(p));
+      }    
+    } 
     rf.openReadingPipe(0, broadcast);
     rf.startListening();
     return ok;
