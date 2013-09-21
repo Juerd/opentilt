@@ -7,6 +7,7 @@
 #include <TimedButton.h>
 #include <Entropy.h>
 #include "color.h"
+#include "shiv.h"
 
 // XXX master should send its value to the slaves
 const float   shock_dead   = 2;     // centiG per millisecond?
