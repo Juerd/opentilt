@@ -21,6 +21,9 @@ const int      time_start  = 4000;
 const int      time_heartbeat = 800;
 const int      time_comm_timeout = 3 * time_heartbeat + 100;
 
+const int      broadcast_repeat = 3;
+const int      broadcast_delay = 3;
+
 const Color    color_setup1 = gray50;
 const Color    color_setup2 = white;
 const Color    color_master = magenta;
@@ -166,7 +169,10 @@ int oldstate = -1;
 static long int broadcast = 0x96969696L;
 
 bool send(long int destination, uint8_t msg, union Param param) {
+    int i;
+    bool is_broadcast = (destination == broadcast);
     static Payload p;
+
     p.seq++;
     p.msg = msg;
     p.param = param;
@@ -176,14 +182,15 @@ bool send(long int destination, uint8_t msg, union Param param) {
     Serial.print("msg "); Serial.println(p.msg);
     rf.openWritingPipe(destination);
     rf.stopListening();
-    bool ok = rf.write(&p, sizeof(p));
-    // If packet is a broadcast, send another 9 times with 5ms delay
-    if (destination == broadcast) {
-        for (int broadcast_nr = 0; broadcast_nr < 2; broadcast_nr++) {
-            delay(3);
-            bool ok = rf.write(&p, sizeof(p));
-        }    
-    } 
+
+    bool ok = rf.write(&p, sizeof(p), is_broadcast);
+    if (is_broadcast) {
+        for (i = 1; i < broadcast_repeat; i++) {
+            delay(broadcast_delay);
+            bool ok = rf.write(&p, sizeof(p), is_broadcast);
+        }
+    }
+
     rf.openReadingPipe(0, broadcast);
     rf.startListening();
     return ok;
