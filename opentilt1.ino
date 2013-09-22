@@ -9,9 +9,16 @@
 #include "color.h"
 #include "shiv.h"
 
+//#define DEBUG
+
 // XXX master should send its value to the slaves
-const float   shock_dead   = 2;     // centiG per millisecond?
-const float   shock_start  = 30;    // to start the game
+const float   shock_dead    = 2;     // centiG per millisecond?
+
+// To start the game
+const float   shock_shake   = 10;
+const float   shakes_start  = 5;
+const int     time_shake    = 100;
+const int     timeout_shake = 500;
 
 const int      max_players = 32;    // 4 bytes of SRAM per player!
 
@@ -25,6 +32,8 @@ const int      broadcast_repeat = 15;
 const int      broadcast_delay  = 0;
 const int      unicast_tries    = 15;
 const int      unicast_delay    = 0;
+
+const int      delay_main_loop = 5;
 
 const Color    color_setup1 = green;
 const Color    color_setup2 = white;
@@ -61,7 +70,7 @@ const uint8_t msg_you_win = 201;
 const uint8_t msg_you_die = 202;
 
 const float shock_dead2 = shock_dead * shock_dead;
-const float shock_start2  = shock_start  * shock_start;
+const float shock_shake2  = shock_shake  * shock_shake;
 
 AcceleroMMA7361 acc;
 RF24            rf(pin_rf_ce, pin_rf_cs);
@@ -139,7 +148,10 @@ struct Payload {
 };
 
 void setup() {
-    Serial.begin(115200);
+    #ifdef DEBUG
+        Serial.begin(115200);
+        Serial.println(sizeof(Payload));
+    #endif
     pinMode(pin_power, OUTPUT);
     pinMode(pin_led_r, OUTPUT);
     pinMode(pin_led_g, OUTPUT);
@@ -150,11 +162,10 @@ void setup() {
 
     Entropy.Initialize();
 
-    acc.begin(NULL, NULL, NULL, NULL, pin_acc_x, pin_acc_y, pin_acc_z);
+    acc.begin(0, 0, 0, 0, pin_acc_x, pin_acc_y, pin_acc_z);
 
     rf.begin();
     rf.setRetries(unicast_delay, unicast_tries);
-    Serial.println(sizeof(Payload));
     rf.setPayloadSize(sizeof(Payload));
 
     time_heartbeat += Entropy.random(0, 500);
@@ -180,10 +191,12 @@ bool send(long int destination, uint8_t msg, union Param param) {
     p.seq++;
     p.msg = msg;
     p.param = param;
-    Serial.println("SENDING: ");
-    Serial.print("to "); Serial.println(destination, HEX);
-    Serial.print("seq "); Serial.println(p.seq);
-    Serial.print("msg "); Serial.println(p.msg);
+    #ifdef DEBUG
+        Serial.println("SENDING: ");
+        Serial.print("to "); Serial.println(destination, HEX);
+        Serial.print("seq "); Serial.println(p.seq);
+        Serial.print("msg "); Serial.println(p.msg);
+    #endif
     rf.openWritingPipe(destination);
     rf.stopListening();
 
@@ -195,7 +208,7 @@ bool send(long int destination, uint8_t msg, union Param param) {
         }
     }
 
-    rf.openReadingPipe(0, broadcast);
+    if (!is_broadcast) rf.openReadingPipe(0, broadcast);
     rf.startListening();
     return ok;
 }
@@ -209,6 +222,24 @@ static long int master = 0x69690000L;
 static float shock2;
 static bool am_master;
 static unsigned long state_change;
+
+bool master_check_shake() {
+    static unsigned long last_shake = 0;
+    static unsigned int shakes;
+    if (shock2 > shock_shake2 && last_shake < millis() - time_shake) {
+        last_shake = millis();
+
+        if (++shakes >= shakes_start) {
+            shakes = 0;
+
+            state = MASTER_GAME_SETUP;
+            return true;
+        }
+    }
+
+    if (last_shake < millis() - timeout_shake) shakes = 0;
+    return false;
+}
 
 bool master_loop() {
     static int num_players = 1;
@@ -232,11 +263,12 @@ bool master_loop() {
             rf.openReadingPipe(1, master);
             rf.startListening();
 
-            Serial.println("I am master.");
-
+            #ifdef DEBUG
+                Serial.println("I am master.");
+                Serial.println(get_free_memory(), DEC);
+            #endif
 
             state = MASTER_INVITE;
-            Serial.println(get_free_memory(), DEC);
 
             break;
         }
@@ -262,7 +294,7 @@ bool master_loop() {
                 led(color_master);
             }
 
-            if (shock2 > shock_start2) {
+            if (master_check_shake()) {
                 param.config.id = 0;
                 param.config.color =
                     num_players == 1
@@ -270,8 +302,6 @@ bool master_loop() {
                     : color_player;
                 payload.msg = msg_config;
                 payload.param = param;
-
-                state = MASTER_GAME_SETUP;
                 return true;
             }
 
@@ -296,10 +326,7 @@ bool master_loop() {
         }
         case GAME:
         case GAME_OVER: {
-            if (state == GAME_OVER && shock2 > shock_start2) {
-                state = MASTER_GAME_SETUP;
-                break;
-            }
+            if (master_check_shake()) break;
 
             if (received && payload.msg == msg_status) {
                 int id = payload.param.status.id;
@@ -325,10 +352,12 @@ bool master_loop() {
                     num_alive++;
                     survivor = i;
                 } else if (alive[i]) {
-                    Serial.print(i, DEC);
-                    Serial.println(" timed out.");
-                    Serial.println(alive[i]);
-                    Serial.println(millis());
+                    #ifdef DEBUG
+                        Serial.print(i, DEC);
+                        Serial.println(" timed out.");
+                        Serial.println(alive[i]);
+                        Serial.println(millis());
+                    #endif
                     alive[i] = 0;
                 }
             }
@@ -352,27 +381,44 @@ bool client_loop() {
     static Color color;
     static unsigned long wait_until;
     static bool have_setup = false;
-    static bool alive = true;
+    static bool alive;
     static unsigned long heartbeat_received;
     static unsigned long next_heartbeat;
     int ok;
 
-    if (received && payload.msg == msg_config) {
-        me = payload.param.config.id;
-        color = payload.param.config.color;
-        if (!am_master) {
-            broadcast = payload.param.config.broadcast;
-            rf.openReadingPipe(0, broadcast);
-            rf.startListening();
+    if (received) {
+        switch (payload.msg) {
+            case msg_config: {
+                me = payload.param.config.id;
+                color = payload.param.config.color;
+                if (!am_master) {
+                    broadcast = payload.param.config.broadcast;
+                    rf.openReadingPipe(0, broadcast);
+                    rf.startListening();
+                }
+
+                #ifdef DEBUG
+                    Serial.print("I am player ");
+                    Serial.println(me);
+                    Serial.println(get_free_memory());
+                #endif
+
+                have_setup = true;
+                heartbeat_received = millis();
+                break;
+            }
+            case msg_heartbeat: {
+                heartbeat_received = millis();
+                break;
+            }
+            case msg_start_game: {
+                if (state == GAME_START || !have_setup) break;
+                state = GAME_START;
+                alive = true;
+                wait_until = millis() + payload.param.start_game.time;
+                break;
+            }
         }
-        Serial.print("I am player ");
-        Serial.println(me);
-        Serial.println(get_free_memory());
-        have_setup = true;
-        heartbeat_received = millis();
-    }
-    else if (received && payload.msg == msg_heartbeat) {
-        heartbeat_received = millis();
     }
 
     if (!am_master && state >= PRE_GAME) {
@@ -380,7 +426,6 @@ bool client_loop() {
             state = COMM_ERROR;
 
         if (millis() > next_heartbeat && state >= GAME) {
-            // XXX Randomize interval to spread RF clashes?
             next_heartbeat = millis() + time_heartbeat;
             param.status.id    = me;
             param.status.alive = alive;
@@ -438,10 +483,6 @@ bool client_loop() {
 
         case PRE_GAME: {
             led(((millis() - state_change) % 1000 < 100) ? off : color);
-            if (received && payload.msg == msg_start_game) {
-                state = GAME_START;
-                wait_until = millis() + payload.param.start_game.time;
-            }
             break;
         }
 
@@ -534,7 +575,6 @@ void loop() {
     }
 
     shock2 = (float) (dx*dx + dy*dy + dz*dz)/dt;
-    //Serial.println(shock2);
 
     if (button.down(long_press)) {
         led(off);
@@ -549,9 +589,11 @@ void loop() {
     // message to ourselves :)
     if (!received && rf.available()) {
         ok = rf.read(&payload, sizeof(payload));
-        Serial.println("RECEIVED: ");
-        Serial.print("seq "); Serial.println(payload.seq);
-        Serial.print("msg "); Serial.println(payload.msg);
+        #ifdef DEBUG
+            Serial.println("RECEIVED: ");
+            Serial.print("seq "); Serial.println(payload.seq);
+            Serial.print("msg "); Serial.println(payload.msg);
+        #endif
         received = 1;
     }
 
@@ -565,7 +607,7 @@ void loop() {
     if (am_master) received = master_loop();
     else received = 0;
 
-    delay(5);
+    delay(delay_main_loop);
 }
 
 // vim: ft=cpp
