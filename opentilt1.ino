@@ -29,9 +29,11 @@ const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
 
+const int      time_heartbeat_master = 1000;
 const int      time_heartbeat_min =  400;
-const int      time_heartbeat_max =  600;
-const int      time_comm_timeout = 5 * time_heartbeat_max + 100;
+const int      time_heartbeat_max =  800;
+const int      time_master_gone = 4500;
+const int      time_client_gone = 6 * time_heartbeat_max + 100;
 
 const int      broadcast_repeat = 15;
 const int      broadcast_delay  = 0;
@@ -271,6 +273,8 @@ bool master_loop() {
         case MASTER_SETUP: {
             led(color_master);
             broadcast = 0x96960000L + Entropy.random(0xFFFF);
+            time_heartbeat = time_heartbeat_master;
+
             rf.openReadingPipe(0, broadcast);
             rf.openReadingPipe(1, master);
             rf.startListening();
@@ -329,7 +333,7 @@ bool master_loop() {
             );
 
             for (i = 0; i < num_players; i++)
-                alive[i] = millis() + time_start + time_heartbeat;
+                alive[i] = millis() + time_start + time_heartbeat_max;
 
             payload.msg = msg_start_game;
             payload.param = param;
@@ -365,7 +369,7 @@ bool master_loop() {
             int num_alive = 0;
             unsigned long survivor;
             for (i = 0; i < num_players; i++) {
-                if (i ? (alive[i] > millis() - time_comm_timeout) : alive[i]) {
+                if (i ? (alive[i] > millis() - time_client_gone) : alive[i]) {
                     num_alive++;
                     survivor = i;
                 } else if (alive[i]) {
@@ -439,7 +443,7 @@ bool client_loop() {
     }
 
     if (!am_master && state >= CLIENT_PAIRED) {
-        if (millis() > heartbeat_received + time_comm_timeout)
+        if (millis() > heartbeat_received + time_master_gone)
             state = CLIENT_COMM_ERROR;
 
         if (millis() > next_heartbeat && state >= GAME_START) {
