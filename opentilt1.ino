@@ -18,13 +18,13 @@ const int      max_players = 32;    // 4 bytes of SRAM per player!
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
-const int      time_heartbeat = 800;
+      int      time_heartbeat = 800;
 const int      time_comm_timeout = 3 * time_heartbeat + 100;
 
-const int      broadcast_repeat = 20;
-const int      broadcast_delay  = 3;
+const int      broadcast_repeat = 15;
+const int      broadcast_delay  = 0;
 const int      unicast_tries    = 15;
-const int      unicast_delay    = 5;
+const int      unicast_delay    = 0;
 
 const Color    color_setup1 = green;
 const Color    color_setup2 = white;
@@ -156,6 +156,8 @@ void setup() {
     rf.setRetries(unicast_delay, unicast_tries);
     Serial.println(sizeof(Payload));
     rf.setPayloadSize(sizeof(Payload));
+
+    time_heartbeat += Entropy.random(0, 500);
 }
 
 
