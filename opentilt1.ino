@@ -29,9 +29,9 @@ const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
 
-const int      time_heartbeat_min =  800;
-const int      time_heartbeat_max = 1200;
-const int      time_comm_timeout = 3 * time_heartbeat_max + 100;
+const int      time_heartbeat_min =  400;
+const int      time_heartbeat_max =  600;
+const int      time_comm_timeout = 5 * time_heartbeat_max + 100;
 
 const int      broadcast_repeat = 15;
 const int      broadcast_delay  = 0;
