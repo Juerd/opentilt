@@ -21,10 +21,12 @@ const int      time_start  = 4000;
 const int      time_heartbeat = 800;
 const int      time_comm_timeout = 3 * time_heartbeat + 100;
 
-const int      broadcast_repeat = 3;
-const int      broadcast_delay = 3;
+const int      broadcast_repeat = 20;
+const int      broadcast_delay  = 3;
+const int      unicast_tries    = 15;
+const int      unicast_delay    = 5;
 
-const Color    color_setup1 = gray50;
+const Color    color_setup1 = green;
 const Color    color_setup2 = white;
 const Color    color_master = magenta;
 const Color    color_error  = red;
@@ -151,7 +153,7 @@ void setup() {
     acc.begin(NULL, NULL, NULL, NULL, pin_acc_x, pin_acc_y, pin_acc_z);
 
     rf.begin();
-    rf.setRetries(10, 10);
+    rf.setRetries(unicast_delay, unicast_tries);
     Serial.println(sizeof(Payload));
     rf.setPayloadSize(sizeof(Payload));
 }
