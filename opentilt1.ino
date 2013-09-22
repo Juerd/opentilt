@@ -540,6 +540,8 @@ bool client_loop() {
         }
 
         case GAME_OVER: {
+            if (received && payload.msg == msg_you_win) alive = true;
+
             led(
                 am_master && (millis() % 5000 < 500)
                 ? color_master
