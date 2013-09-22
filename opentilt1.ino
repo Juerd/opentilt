@@ -180,11 +180,11 @@ void setup() {
 
 
 enum state_enum {
-    COMM_ERROR,
-    HELLO, GET_CONFIG,
+    CLIENT_COMM_ERROR,
+    CLIENT_HELLO, CLIENT_CONFIG,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    PRE_GAME, GAME_START, GAME, GAME_OVER
-} state = HELLO;
+    CLIENT_PAIRED, GAME_START, GAME, GAME_OVER
+} state = CLIENT_HELLO;
 
 int oldstate = -1;
 
@@ -263,6 +263,12 @@ bool master_loop() {
     }
 
     switch (state) {
+        case CLIENT_COMM_ERROR:
+        case CLIENT_HELLO:
+        case CLIENT_CONFIG:
+        case CLIENT_PAIRED:
+            break;
+
         case MASTER_SETUP: {
             led(color_master);
             broadcast = 0x96960000L + Entropy.random(0xFFFF);
@@ -328,10 +334,11 @@ bool master_loop() {
 
             payload.msg = msg_start_game;
             payload.param = param;
-            state = PRE_GAME;
+            state = CLIENT_PAIRED;
             return true;
         }
         case GAME:
+        case GAME_START:
         case GAME_OVER: {
             if (master_check_shake()) break;
 
@@ -432,11 +439,11 @@ bool client_loop() {
         }
     }
 
-    if (!am_master && state >= PRE_GAME) {
+    if (!am_master && state >= CLIENT_PAIRED) {
         if (millis() > heartbeat_received + time_comm_timeout)
-            state = COMM_ERROR;
+            state = CLIENT_COMM_ERROR;
 
-        if (millis() > next_heartbeat && state >= GAME) {
+        if (millis() > next_heartbeat && state >= GAME_START) {
             next_heartbeat = millis() + time_heartbeat;
             param.status.id    = me;
             param.status.alive = alive;
@@ -445,7 +452,12 @@ bool client_loop() {
     }
 
     switch (state) {
-        case COMM_ERROR: {
+        case MASTER_SETUP:
+        case MASTER_INVITE:
+        case MASTER_GAME_SETUP:
+            break;
+
+        case CLIENT_COMM_ERROR: {
             digitalWrite(pin_power, LOW);
             led(millis() % 200 < 100 ? off : color_error);
 
@@ -456,7 +468,7 @@ bool client_loop() {
             }
             break;
         }
-        case HELLO: {
+        case CLIENT_HELLO: {
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
@@ -477,22 +489,22 @@ bool client_loop() {
                 state = MASTER_SETUP;
                 break;
             }
-            state = GET_CONFIG;
+            state = CLIENT_CONFIG;
             wait_until = millis() + timeout;
             break;
         }
 
-        case GET_CONFIG: {
+        case CLIENT_CONFIG: {
             if (millis() >= wait_until) {
                 am_master = true;
                 state = MASTER_SETUP;
             }
-            if (have_setup) state = PRE_GAME;
+            if (have_setup) state = CLIENT_PAIRED;
 
             break;
         }
 
-        case PRE_GAME: {
+        case CLIENT_PAIRED: {
             led(((millis() - state_change) % 1000 < 100) ? off : color);
             break;
         }
