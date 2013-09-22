@@ -192,7 +192,7 @@ static long int broadcast = 0x96969696L;
 
 bool send(long int destination, uint8_t msg, union Param param) {
     int i;
-    bool is_broadcast = (destination == broadcast);
+    bool ok, is_broadcast = (destination == broadcast);
     static Payload p;
 
     p.seq++;
@@ -207,11 +207,11 @@ bool send(long int destination, uint8_t msg, union Param param) {
     rf.openWritingPipe(destination);
     rf.stopListening();
 
-    bool ok = rf.write(&p, sizeof(p), is_broadcast);
+    ok = rf.write(&p, sizeof(p), is_broadcast);
     if (is_broadcast) {
         for (i = 1; i < broadcast_repeat; i++) {
             delay(broadcast_delay);
-            bool ok = rf.write(&p, sizeof(p), is_broadcast);
+            rf.write(&p, sizeof(p), is_broadcast);
         }
     }
 
@@ -254,7 +254,6 @@ bool master_loop() {
     static unsigned long alive[ max_players ];
     static unsigned int addr[ max_players ];
     static unsigned long next_heartbeat = millis() + time_heartbeat;
-    bool ok;
     int i;
 
     if (millis() > next_heartbeat) {
@@ -576,8 +575,6 @@ bool client_loop() {
 }
 
 void loop() {
-
-    int ok;
     static int oldx = 0, oldy = 0, oldz = 0;
     static unsigned long oldt;
     int x = acc.getXAccel();
@@ -613,7 +610,7 @@ void loop() {
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
     if (!received && rf.available()) {
-        ok = rf.read(&payload, sizeof(payload));
+        rf.read(&payload, sizeof(payload));
         #ifdef COMM_DEBUG
             Serial.println("RECEIVED: ");
             Serial.print("seq "); Serial.println(payload.seq);

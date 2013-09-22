@@ -2,7 +2,7 @@
    http://openenergymonitor.org/emon/sites/default/files/GLCD_SSM.ino
 */
 
-#ifndef sleep_bod_disable() // not present in old versions of AVR toolset
+#ifndef sleep_bod_disable // not present in old versions of AVR toolset.
 #define sleep_bod_disable() \
 do { \
   uint8_t tempreg; \
