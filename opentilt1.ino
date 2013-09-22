@@ -40,8 +40,8 @@ const int      unicast_delay    = 0;
 
 const int      delay_main_loop = 5;
 
-const Color    color_setup1 = green;
-const Color    color_setup2 = white;
+const Color    color_setup1 = white;
+const Color    color_setup2 = cyan;
 const Color    color_master = magenta;
 const Color    color_error  = red;
 const Color    color_hello  = lightgreen;
