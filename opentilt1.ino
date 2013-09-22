@@ -11,6 +11,9 @@
 
 //#define DEBUG
 
+// Requires DEBUG:
+//#define COMM_DEBUG
+
 // XXX master should send its value to the slaves
 const float   shock_dead    = 2;     // centiG per millisecond?
 
@@ -25,8 +28,10 @@ const int      max_players = 32;    // 4 bytes of SRAM per player!
 const int      long_press  = 2000;  // power off
 const int      timeout     = 1000;
 const int      time_start  = 4000;
-      int      time_heartbeat = 800;
-const int      time_comm_timeout = 3 * time_heartbeat + 100;
+
+const int      time_heartbeat_min =  800;
+const int      time_heartbeat_max = 1200;
+const int      time_comm_timeout = 3 * time_heartbeat_max + 100;
 
 const int      broadcast_repeat = 15;
 const int      broadcast_delay  = 0;
@@ -147,6 +152,8 @@ struct Payload {
     Param param;
 };
 
+static int time_heartbeat = time_heartbeat_max;
+
 void setup() {
     #ifdef DEBUG
         Serial.begin(115200);
@@ -168,7 +175,7 @@ void setup() {
     rf.setRetries(unicast_delay, unicast_tries);
     rf.setPayloadSize(sizeof(Payload));
 
-    time_heartbeat += Entropy.random(0, 500);
+    time_heartbeat = Entropy.random(time_heartbeat_min, time_heartbeat_max);
 }
 
 
@@ -191,7 +198,7 @@ bool send(long int destination, uint8_t msg, union Param param) {
     p.seq++;
     p.msg = msg;
     p.param = param;
-    #ifdef DEBUG
+    #ifdef COMM_DEBUG
         Serial.println("SENDING: ");
         Serial.print("to "); Serial.println(destination, HEX);
         Serial.print("seq "); Serial.println(p.seq);
@@ -336,7 +343,11 @@ bool master_loop() {
                     } else {
                         // In case you hadn't noticed, you were already dead.
                         // (e.g. communication timeout)
-                        send(master + id, msg_you_die, param);
+                        #ifdef DEBUG
+                            Serial.print(id);
+                            Serial.println(" says they're alive. They're not.");
+                        #endif
+                        send(master + addr[ id ], msg_you_die, param);
                     }
                 } else {
                     alive[ id ] = 0;
@@ -589,7 +600,7 @@ void loop() {
     // message to ourselves :)
     if (!received && rf.available()) {
         ok = rf.read(&payload, sizeof(payload));
-        #ifdef DEBUG
+        #ifdef COMM_DEBUG
             Serial.println("RECEIVED: ");
             Serial.print("seq "); Serial.println(payload.seq);
             Serial.print("msg "); Serial.println(payload.msg);
