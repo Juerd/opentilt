@@ -15,26 +15,26 @@
 //#define COMM_DEBUG
 
 // XXX master should send its value to the slaves
-const float     shock_dead      = 2;     // centiG per millisecond?
+const float     shock_dead      =    2;  // centiG per millisecond?
 
 // To start the game
-const float     shock_shake     = 10;
-const float     shakes_start    = 5;
-const int       time_shake      = 100;
-const int       timeout_shake   = 500;
+const float     shock_shake     =   10;
+const float     shakes_start    =    5;
+const int       time_shake      =  100;
+const int       timeout_shake   =  500;
 
-const int       max_players     = 32;    // 4 bytes of SRAM per player!
+const int       max_players     =   32;  // 4 bytes of SRAM per player!
 
 const int       long_press      = 2000;  // power off
 const int       timeout         = 1000;
 const int       time_start      = 4000;
 
-const int       broadcast_repeat = 15;
-const int       broadcast_delay = 0;
-const int       unicast_tries   = 15;
-const int       unicast_delay   = 0;
+const int       broadcast_repeat =  15;
+const int       broadcast_delay =    0;
+const int       unicast_tries   =   15;
+const int       unicast_delay   =    0;
 
-const int       delay_main_loop = 5;
+const int       delay_main_loop =    5;
 
 const int       time_heartbeat_master   = 1000;
 const int       time_heartbeat_min      =  400;
