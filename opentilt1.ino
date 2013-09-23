@@ -15,42 +15,42 @@
 //#define COMM_DEBUG
 
 // XXX master should send its value to the slaves
-const float   shock_dead    = 2;     // centiG per millisecond?
+const float     shock_dead      = 2;     // centiG per millisecond?
 
 // To start the game
-const float   shock_shake   = 10;
-const float   shakes_start  = 5;
-const int     time_shake    = 100;
-const int     timeout_shake = 500;
+const float     shock_shake     = 10;
+const float     shakes_start    = 5;
+const int       time_shake      = 100;
+const int       timeout_shake   = 500;
 
-const int      max_players = 32;    // 4 bytes of SRAM per player!
+const int       max_players     = 32;    // 4 bytes of SRAM per player!
 
-const int      long_press  = 2000;  // power off
-const int      timeout     = 1000;
-const int      time_start  = 4000;
+const int       long_press      = 2000;  // power off
+const int       timeout         = 1000;
+const int       time_start      = 4000;
 
-const int      time_heartbeat_master = 1000;
-const int      time_heartbeat_min =  400;
-const int      time_heartbeat_max =  800;
-const int      time_master_gone = 4500;
-const int      time_client_gone = 6 * time_heartbeat_max + 100;
+const int       broadcast_repeat = 15;
+const int       broadcast_delay = 0;
+const int       unicast_tries   = 15;
+const int       unicast_delay   = 0;
 
-const int      broadcast_repeat = 15;
-const int      broadcast_delay  = 0;
-const int      unicast_tries    = 15;
-const int      unicast_delay    = 0;
+const int       delay_main_loop = 5;
 
-const int      delay_main_loop = 5;
+const int       time_heartbeat_master   = 1000;
+const int       time_heartbeat_min      =  400;
+const int       time_heartbeat_max      =  800;
+const int       time_master_gone        = 4500;
+const int       time_client_gone        = 6 * time_heartbeat_max + 100;
 
-const Color    color_setup1 = white;
-const Color    color_setup2 = cyan;
-const Color    color_master = magenta;
-const Color    color_error  = red;
-const Color    color_hello  = lightgreen;
-const Color    color_player = royalblue;
-const Color    color_dead   = coral;
-const Color    color_win    = lightgreen;
-const Color    color_single = gold;  // single player mode
+const Color     color_setup1 = white;
+const Color     color_setup2 = cyan;
+const Color     color_master = magenta;
+const Color     color_error  = red;
+const Color     color_hello  = lightgreen;
+const Color     color_player = royalblue;
+const Color     color_dead   = coral;
+const Color     color_win    = lightgreen;
+const Color     color_single = gold;  // single player mode
 
 const int pin_button = 2;   // interrupt
 const int pin_led_r  = 3;   // pwm
@@ -128,7 +128,6 @@ int get_free_memory() {
     else free_memory = ((int)&free_memory) - ((int)__brkval);
     return free_memory;
 }
-
 
 union Param {
     struct {
@@ -288,7 +287,6 @@ bool master_loop() {
 
             break;
         }
-
         case MASTER_INVITE: {
             if (received && payload.msg == msg_hello) {
                 delay(10);
@@ -496,7 +494,6 @@ bool client_loop() {
             wait_until = millis() + timeout;
             break;
         }
-
         case CLIENT_CONFIG: {
             if (millis() >= wait_until) {
                 am_master = true;
@@ -506,12 +503,10 @@ bool client_loop() {
 
             break;
         }
-
         case CLIENT_PAIRED: {
             led(((millis() - state_change) % 1000 < 100) ? off : color);
             break;
         }
-
         case GAME_START: {
             led(((millis() - state_change) % 200 < 100) ? off : color);
 
@@ -521,7 +516,6 @@ bool client_loop() {
             }
             break;
         }
-
         case GAME: {
             if (received && payload.msg == msg_you_win) {
                 alive = true;
@@ -553,7 +547,6 @@ bool client_loop() {
             }
             break;
         }
-
         case GAME_OVER: {
             if (received && payload.msg == msg_you_win) alive = true;
 
@@ -572,7 +565,6 @@ bool client_loop() {
             }
             break;
         }
-
     }
 
     return false;
@@ -591,7 +583,7 @@ void loop() {
         state_change = millis();
         oldstate = state;
     }
-    
+
     int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
     oldx = x; oldy = y; oldz = z; oldt = t;
 
@@ -609,7 +601,6 @@ void loop() {
         delay(1000);  // XXX debounce
         power_down();
     }
-
 
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
