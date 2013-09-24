@@ -10,7 +10,6 @@
 #include "shiv.h"
 
 //#define DEBUG
-
 // Requires DEBUG:
 //#define COMM_DEBUG
 
@@ -136,7 +135,7 @@ union Param {
     struct {
         uint8_t  id;
         Color    color;
-        uint32_t broadcast;
+        uint32_t prefix;
     } config;
     struct {
         uint32_t time;
@@ -189,9 +188,10 @@ enum state_enum {
 
 int oldstate = -1;
 
-static long int broadcast = 0x96969696L;
+static unsigned long master    = 0x69690000L;
+static unsigned long broadcast = 0x96969696L;
 
-bool send(long int destination, uint8_t msg, union Param param) {
+bool send(unsigned long destination, uint8_t msg, union Param param) {
     int i;
     bool ok, is_broadcast = (destination == broadcast);
     static Payload p;
@@ -226,10 +226,10 @@ static Payload payload;
 static Param param;  // for sending
 static long int my_addr;
 static unsigned int me;
-static long int master = 0x69690000L;
 static float shock2;
 static bool am_master;
 static unsigned long state_change;
+static unsigned long prefix;
 
 bool master_check_shake() {
     static unsigned long last_shake = 0;
@@ -253,7 +253,6 @@ bool master_loop() {
     static int num_players = 1;
     static unsigned long wait_until = 0;
     static unsigned long alive[ max_players ];
-    static unsigned int addr[ max_players ];
     static unsigned long next_heartbeat = millis() + time_heartbeat;
     int i;
 
@@ -271,7 +270,11 @@ bool master_loop() {
 
         case MASTER_SETUP: {
             led(color_master);
-            broadcast = 0x96960000L + Entropy.random(0xFFFF);
+            prefix = 0x96000000L + (Entropy.random(0xFFFF) << 8);
+            #ifdef DEBUG
+                Serial.println(prefix, HEX);
+            #endif
+            broadcast = prefix + 0xff;
             time_heartbeat = time_heartbeat_master;
 
             rf.openReadingPipe(0, broadcast);
@@ -292,7 +295,7 @@ bool master_loop() {
                 delay(10);
                 param.config.id    = num_players;
                 param.config.color = color_player;
-                param.config.broadcast = broadcast;
+                param.config.prefix = prefix;
                 send(
                     master + payload.param.hello.id,
                     msg_config,
@@ -300,7 +303,6 @@ bool master_loop() {
                 );
                 led(color_hello);
                 wait_until = millis() + 500;
-                addr[ num_players ] = payload.param.hello.id;
                 num_players++;
             }
 
@@ -322,6 +324,9 @@ bool master_loop() {
             break;
         }
         case MASTER_GAME_SETUP: {
+            master = prefix + 0x00;
+            rf.openReadingPipe(1, master);
+            rf.startListening();
 
             param.start_game.time = time_start;
             send(
@@ -355,7 +360,7 @@ bool master_loop() {
                             Serial.print(id);
                             Serial.println(" says they're alive. They're not.");
                         #endif
-                        send(master + addr[ id ], msg_you_die, param);
+                        send(prefix + id, msg_you_die, param);
                     }
                 } else {
                     alive[ id ] = 0;
@@ -385,7 +390,7 @@ bool master_loop() {
                     payload.msg = msg_you_win;
                     return true;
                 } else {
-                    send( master + addr[survivor], msg_you_win, param );
+                    send( prefix + survivor, msg_you_win, param );
                 }
             }
 
@@ -411,14 +416,19 @@ bool client_loop() {
                 me = payload.param.config.id;
                 color = payload.param.config.color;
                 if (!am_master) {
-                    broadcast = payload.param.config.broadcast;
+                    prefix = payload.param.config.prefix;
+                    broadcast = prefix + 0xff;
                     rf.openReadingPipe(0, broadcast);
+                    rf.openReadingPipe(1, prefix + me);
                     rf.startListening();
                 }
 
                 #ifdef DEBUG
                     Serial.print("I am player ");
                     Serial.println(me);
+                    Serial.println(prefix, HEX);
+                    Serial.println(prefix + me, HEX);
+                    Serial.println(broadcast, HEX);
                     Serial.println(get_free_memory());
                 #endif
 
@@ -431,6 +441,8 @@ bool client_loop() {
                 break;
             }
             case msg_start_game: {
+                master = prefix + 0x00;
+
                 if (state == GAME_START || !have_setup) break;
                 state = GAME_START;
                 alive = true;
