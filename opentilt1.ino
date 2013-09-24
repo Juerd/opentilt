@@ -1,3 +1,5 @@
+//#define DEBUG
+
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include <AcceleroMMA7361.h>
@@ -8,10 +10,7 @@
 #include <Entropy.h>
 #include "color.h"
 #include "shiv.h"
-
-//#define DEBUG
-// Requires DEBUG:
-//#define COMM_DEBUG
+#include "debug.h"
 
 // XXX master should send its value to the slaves
 const float     shock_dead      =    2;  // centiG per millisecond?
@@ -157,7 +156,7 @@ static int time_heartbeat = time_heartbeat_max;
 void setup() {
     #ifdef DEBUG
         Serial.begin(115200);
-        Serial.println(sizeof(Payload));
+        debug_begin();
     #endif
     pinMode(pin_power, OUTPUT);
     pinMode(pin_led_r, OUTPUT);
@@ -199,12 +198,7 @@ bool send(unsigned long destination, uint8_t msg, union Param param) {
     p.seq++;
     p.msg = msg;
     p.param = param;
-    #ifdef COMM_DEBUG
-        Serial.println("SENDING: ");
-        Serial.print("to "); Serial.println(destination, HEX);
-        Serial.print("seq "); Serial.println(p.seq);
-        Serial.print("msg "); Serial.println(p.msg);
-    #endif
+    D("SEND to=%08lx seq=%d msg=%d", destination, p.seq, p.msg);
     rf.openWritingPipe(destination);
     rf.stopListening();
 
@@ -271,9 +265,6 @@ bool master_loop() {
         case MASTER_SETUP: {
             led(color_master);
             prefix = 0x96000000L + (Entropy.random(0xFFFF) << 8);
-            #ifdef DEBUG
-                Serial.println(prefix, HEX);
-            #endif
             broadcast = prefix + 0xff;
             time_heartbeat = time_heartbeat_master;
 
@@ -281,10 +272,7 @@ bool master_loop() {
             rf.openReadingPipe(1, master);
             rf.startListening();
 
-            #ifdef DEBUG
-                Serial.println("I am master.");
-                Serial.println(get_free_memory(), DEC);
-            #endif
+            D("I am master! prefix=%08lx free=%d", prefix, get_free_memory());
 
             state = MASTER_INVITE;
 
@@ -356,10 +344,7 @@ bool master_loop() {
                     } else {
                         // In case you hadn't noticed, you were already dead.
                         // (e.g. communication timeout)
-                        #ifdef DEBUG
-                            Serial.print(id);
-                            Serial.println(" says they're alive. They're not.");
-                        #endif
+                        D("%d says they're alive. They're not.", id);
                         send(prefix + id, msg_you_die, param);
                     }
                 } else {
@@ -376,12 +361,7 @@ bool master_loop() {
                     num_alive++;
                     survivor = i;
                 } else if (alive[i]) {
-                    #ifdef DEBUG
-                        Serial.print(i, DEC);
-                        Serial.println(" timed out.");
-                        Serial.println(alive[i]);
-                        Serial.println(millis());
-                    #endif
+                    D("%d timed out: seen=%d uptime=%d", alive[i], millis());
                     alive[i] = 0;
                 }
             }
@@ -423,14 +403,8 @@ bool client_loop() {
                     rf.startListening();
                 }
 
-                #ifdef DEBUG
-                    Serial.print("I am player ");
-                    Serial.println(me);
-                    Serial.println(prefix, HEX);
-                    Serial.println(prefix + me, HEX);
-                    Serial.println(broadcast, HEX);
-                    Serial.println(get_free_memory());
-                #endif
+                D("I am player %d. prefix=%08lx, free=%d",
+                    me, prefix, get_free_memory());
 
                 have_setup = true;
                 heartbeat_received = millis();
@@ -618,11 +592,7 @@ void loop() {
     // message to ourselves :)
     if (!received && rf.available()) {
         rf.read(&payload, sizeof(payload));
-        #ifdef COMM_DEBUG
-            Serial.println("RECEIVED: ");
-            Serial.print("seq "); Serial.println(payload.seq);
-            Serial.print("msg "); Serial.println(payload.msg);
-        #endif
+        D("RECEIVED: seq=%d msg=%d", payload.seq, payload.msg);
         received = 1;
     }
 
