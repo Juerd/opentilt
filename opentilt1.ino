@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 
 #include <avr/wdt.h>
 #include <avr/sleep.h>
@@ -11,6 +11,7 @@
 #include "color.h"
 #include "shiv.h"
 #include "debug.h"
+#include "opentilt1.h"
 
 // XXX master should send its value to the slaves
 const float     shock_dead      =    2;  // centiG per millisecond?
@@ -39,15 +40,22 @@ const int       time_heartbeat_min      =  400;
 const int       time_heartbeat_max      =  800;
 const int       time_master_gone        = 4500;
 const int       time_client_gone        = 6 * time_heartbeat_max + 100;
+const int       time_error_delay        = 1000;
 
 const Color     color_setup1 = white;
 const Color     color_setup2 = cyan;
 const Color     color_master = magenta;
 const Color     color_error  = red;
+const Blink     blink_error  = { 300, 200 };
 const Color     color_hello  = lightgreen;
 const Color     color_player = royalblue;
+const Blink     blink_paired = { 900, 100 };
+const Blink     blink_start  = { 100, 100 };
 const Color     color_dead   = coral;
+const Color     color_lose   = color_dead;
+const Blink     blink_lose   = { 2000, 100 };
 const Color     color_win    = lightgreen;
+const Blink     blink_win    = { 500, 500 };
 const Color     color_single = gold;  // single player mode
 
 const int pin_button = 2;   // interrupt
@@ -61,21 +69,21 @@ const int pin_acc_x  = A6;  // non-nano doesn't have A6+A7
 const int pin_acc_y  = A7;
 const int pin_acc_z  = A5;
 
-// broadcast (master to clients)
-const uint8_t msg_heartbeat  = 0;
-const uint8_t msg_start_game = 1;
-
-// client to master
-const uint8_t msg_hello  = 100;
-const uint8_t msg_status = 101;
-
-// master to client
-const uint8_t msg_config = 200;
-const uint8_t msg_you_win = 201;
-const uint8_t msg_you_die = 202;
-
 const float shock_dead2 = shock_dead * shock_dead;
 const float shock_shake2  = shock_shake  * shock_shake;
+
+static int time_heartbeat = time_heartbeat_max;
+static unsigned long master    = 0x69690000L;
+static unsigned long broadcast = 0x96969696L;
+static bool received = 0;
+static Payload payload;
+static Param param;  // for sending
+static long int my_addr;
+static unsigned int me;
+static float shock2;
+static bool am_master = false;
+static unsigned long state_change;
+static unsigned long prefix;
 
 AcceleroMMA7361 acc;
 RF24            rf(pin_rf_ce, pin_rf_cs);
@@ -85,6 +93,23 @@ void led(Color color) {
     analogWrite(pin_led_r, color.r);
     analogWrite(pin_led_g, color.g);
     analogWrite(pin_led_b, color.b);
+}
+
+void led_error(int blinks) {
+    unsigned int once     = blink_error.on + blink_error.off,
+                 total    = blinks * once - blink_error.off,
+                 interval = total + time_error_delay;
+
+    led(   millis() % interval < total
+        && millis() % interval % once < blink_error.on
+        ? color_error
+        : off
+    );
+}
+
+void led_blink(Blink pattern, Color c1, Color c2 = off, long adjustment = 0) {
+    unsigned int interval = pattern.on + pattern.off;
+    led((millis() + adjustment) % interval < pattern.on ? c1 : c2);
 }
 
 void pin2_isr() {
@@ -127,31 +152,6 @@ int get_free_memory() {
     return free_memory;
 }
 
-union Param {
-    struct {
-        uint16_t id;
-    } hello;
-    struct {
-        uint8_t  id;
-        Color    color;
-        uint32_t prefix;
-    } config;
-    struct {
-        uint32_t time;
-    } start_game;
-    struct {
-        uint8_t id;
-        uint8_t alive;
-    } status;
-};
-
-struct Payload {
-    uint8_t seq;
-    uint8_t msg;
-    Param param;
-};
-
-static int time_heartbeat = time_heartbeat_max;
 
 void setup() {
     #ifdef DEBUG
@@ -175,6 +175,13 @@ void setup() {
     rf.setPayloadSize(sizeof(Payload));
 
     time_heartbeat = Entropy.random(time_heartbeat_min, time_heartbeat_max);
+
+    // POST
+    if (! rf.isPVariant()) {
+        D("No nRF24L01+ detected.");
+        digitalWrite(pin_power, LOW);
+        for (;;) led_error(error_no_radio);
+    }
 }
 
 
@@ -182,13 +189,11 @@ enum state_enum {
     CLIENT_COMM_ERROR,
     CLIENT_HELLO, CLIENT_CONFIG, CLIENT_PAIRED,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    GAME_START, GAME, GAME_OVER
+    GAME_START, GAME, MASTER_GAME_OVER_SETUP, GAME_OVER
 } state = CLIENT_HELLO;
 
 int oldstate = -1;
 
-static unsigned long master    = 0x69690000L;
-static unsigned long broadcast = 0x96969696L;
 
 bool send(unsigned long destination, uint8_t msg, union Param param) {
     int i;
@@ -215,15 +220,6 @@ bool send(unsigned long destination, uint8_t msg, union Param param) {
     return ok;
 }
 
-static bool received = 0;
-static Payload payload;
-static Param param;  // for sending
-static long int my_addr;
-static unsigned int me;
-static float shock2;
-static bool am_master;
-static unsigned long state_change;
-static unsigned long prefix;
 
 bool master_check_shake() {
     static unsigned long last_shake = 0;
@@ -332,8 +328,7 @@ bool master_loop() {
             return true;
         }
         case GAME:
-        case GAME_START:
-        case GAME_OVER: {
+        case GAME_START: {
             if (master_check_shake()) break;
 
             if (received && payload.msg == msg_status) {
@@ -367,14 +362,22 @@ bool master_loop() {
             }
             if (num_alive == 1) {
                 if (survivor == 0) {  // that's me!
-                    payload.msg = msg_you_win;
-                    return true;
+                    send(broadcast, msg_game_over, param);
+                    payload.msg = msg_game_over_you_win;
+                    return true;  // client_loop will set state = G_O_SETUP.
                 } else {
-                    send( prefix + survivor, msg_you_win, param );
+                    send(prefix + survivor, msg_game_over_you_win, param);
+                    send(broadcast, msg_game_over, param);
+                    state = GAME_OVER;
                 }
             }
 
+            break;
+        }
+        case GAME_OVER: {
+            master_check_shake();
 
+            break;
         }
     }
 
@@ -382,9 +385,9 @@ bool master_loop() {
 }
 
 bool client_loop() {
-    static Color color;
+    static Color my_color;
     static unsigned long wait_until;
-    static bool have_setup = false;
+    static bool have_config = false;
     static bool alive;
     static unsigned long heartbeat_received;
     static unsigned long next_heartbeat;
@@ -393,8 +396,10 @@ bool client_loop() {
     if (received) {
         switch (payload.msg) {
             case msg_config: {
+                if (have_config) break;
+
                 me = payload.param.config.id;
-                color = payload.param.config.color;
+                my_color = payload.param.config.color;
                 if (!am_master) {
                     prefix = payload.param.config.prefix;
                     broadcast = prefix + 0xff;
@@ -406,7 +411,7 @@ bool client_loop() {
                 D("I am player %d. prefix=%08lx, free=%d",
                     me, prefix, get_free_memory());
 
-                have_setup = true;
+                have_config = true;
                 heartbeat_received = millis();
                 break;
             }
@@ -417,7 +422,7 @@ bool client_loop() {
             case msg_start_game: {
                 master = prefix + 0x00;
 
-                if (state == GAME_START || !have_setup) break;
+                if (state == GAME_START || !have_config) break;
                 state = GAME_START;
                 alive = true;
                 wait_until = millis() + payload.param.start_game.time;
@@ -427,8 +432,10 @@ bool client_loop() {
     }
 
     if (!am_master && state >= CLIENT_PAIRED) {
-        if (millis() > heartbeat_received + time_master_gone)
+        if (millis() > heartbeat_received + time_master_gone) {
+            D("Master heartbeat timed out.");
             state = CLIENT_COMM_ERROR;
+        }
 
         if (millis() > next_heartbeat && state >= GAME_START) {
             next_heartbeat = millis() + time_heartbeat;
@@ -442,13 +449,12 @@ bool client_loop() {
         case MASTER_SETUP:
         case MASTER_INVITE:
         case MASTER_GAME_SETUP:
+        case MASTER_GAME_OVER_SETUP:
             break;
 
         case CLIENT_COMM_ERROR: {
-            digitalWrite(pin_power, LOW);
-            led(millis() % 200 < 100 ? off : color_error);
+            led_error(error_master_gone);
 
-            // VVV doesn't work...
             if (received && payload.msg == msg_start_game) {
                 state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
@@ -458,7 +464,6 @@ bool client_loop() {
         case CLIENT_HELLO: {
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
-
 
             wait_until = Entropy.random(1500);  // because random is slow
 
@@ -485,16 +490,16 @@ bool client_loop() {
                 am_master = true;
                 state = MASTER_SETUP;
             }
-            if (have_setup) state = CLIENT_PAIRED;
+            if (have_config) state = CLIENT_PAIRED;
 
             break;
         }
         case CLIENT_PAIRED: {
-            led(((millis() - state_change) % 1000 < 100) ? off : color);
+            led_blink(blink_paired, my_color, off, -state_change);
             break;
         }
         case GAME_START: {
-            led(((millis() - state_change) % 200 < 100) ? off : color);
+            led_blink(blink_start, my_color, off, -state_change);
 
             if (millis() > wait_until) {
                 alive = true;
@@ -503,19 +508,22 @@ bool client_loop() {
             break;
         }
         case GAME: {
-            if (received && payload.msg == msg_you_win) {
+            if (received && payload.msg == msg_game_over_you_win) {
                 alive = true;
+                state = GAME_OVER;
+                break;
+            } else if (received && payload.msg == msg_game_over) {
+                alive = false;
                 state = GAME_OVER;
                 break;
             } else if (received && payload.msg == msg_you_die) {
                 alive = false;
-                state = GAME_OVER;
                 break;
             }
 
-            if (shock2 > shock_dead2) {
+            led(alive ? my_color : color_dead);
+            if (alive && shock2 > shock_dead2) {
                 alive = false;
-                state = GAME_OVER;
 
                 param.status.id    = me;
                 param.status.alive = alive;
@@ -528,23 +536,18 @@ bool client_loop() {
                 } else {
                     send(master, msg_status, param);
                 }
-            } else { // if (millis() > wait_until) {
-                led(color);
             }
             break;
         }
         case GAME_OVER: {
-            if (received && payload.msg == msg_you_win) alive = true;
+            if (am_master && millis() % 5000 < 500) {
+                led(color_master);
+            } else if (alive) {
+                led_blink(blink_win, color_win, off, -state_change);
+            } else {
+                led_blink(blink_lose, color_lose, off, -state_change);
+            }
 
-            led(
-                am_master && (millis() % 5000 < 500)
-                ? color_master
-                : (
-                    alive
-                    ? ( (millis() - state_change) % 300 < 100 ? off : color_win)
-                    : color_dead
-                )
-            );
             if (received && payload.msg == msg_start_game) {
                 state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
@@ -566,6 +569,7 @@ void loop() {
     static bool firstloop = true;
 
     if (state != oldstate) {
+        D("State changed from %d to %d.", oldstate, state);
         state_change = millis();
         oldstate = state;
     }
