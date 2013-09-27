@@ -40,6 +40,9 @@ union Param {
         uint8_t id;
         uint8_t alive;
     } status;
+    struct {
+        uint32_t time;
+    } heartbeat;
 };
 
 struct Payload {

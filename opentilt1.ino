@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 
 #include <avr/wdt.h>
 #include <avr/sleep.h>
@@ -82,8 +82,8 @@ static long int my_addr;
 static unsigned int me;
 static float shock2;
 static bool am_master = false;
-static unsigned long state_change;
 static unsigned long prefix;
+static signed long blinksync = 0;
 
 AcceleroMMA7361 acc;
 RF24            rf(pin_rf_ce, pin_rf_cs);
@@ -100,16 +100,19 @@ void led_error(int blinks) {
                  total    = blinks * once - blink_error.off,
                  interval = total + time_error_delay;
 
-    led(   millis() % interval < total
-        && millis() % interval % once < blink_error.on
+    unsigned long now = millis() + blinksync;
+
+    led(   now % interval < total
+        && now % interval % once < blink_error.on
         ? color_error
         : off
     );
 }
 
-void led_blink(Blink pattern, Color c1, Color c2 = off, long adjustment = 0) {
+void led_blink(Blink pattern, Color c1, Color c2 = off) {
+    unsigned long now = millis() + blinksync;
     unsigned int interval = pattern.on + pattern.off;
-    led((millis() + adjustment) % interval < pattern.on ? c1 : c2);
+    led(now % interval < pattern.on ? c1 : c2);
 }
 
 void pin2_isr() {
@@ -207,10 +210,12 @@ bool send(unsigned long destination, uint8_t msg, union Param param) {
     rf.openWritingPipe(destination);
     rf.stopListening();
 
+    if (msg == msg_heartbeat) p.param.heartbeat.time = millis();
     ok = rf.write(&p, sizeof(p), is_broadcast);
     if (is_broadcast) {
         for (i = 1; i < broadcast_repeat; i++) {
             delay(broadcast_delay);
+            if (msg == msg_heartbeat) p.param.heartbeat.time = millis();
             rf.write(&p, sizeof(p), is_broadcast);
         }
     }
@@ -417,6 +422,9 @@ bool client_loop() {
             }
             case msg_heartbeat: {
                 heartbeat_received = millis();
+                blinksync = payload.param.heartbeat.time - millis();
+                D("My time: %ld, HB time: %ld, Blinksync: %ld",
+                    millis(), payload.param.heartbeat.time, blinksync);
                 break;
             }
             case msg_start_game: {
@@ -494,11 +502,11 @@ bool client_loop() {
             break;
         }
         case CLIENT_PAIRED: {
-            led_blink(blink_paired, my_color, off, -state_change);
+            led_blink(blink_paired, my_color);
             break;
         }
         case GAME_START: {
-            led_blink(blink_start, my_color, off, -state_change);
+            led_blink(blink_start, my_color);
 
             if (millis() > wait_until) {
                 alive = true;
@@ -541,10 +549,9 @@ bool client_loop() {
         case GAME_OVER: {
             if (am_master && millis() % 5000 < 500) {
                 led(color_master);
-            } else if (alive) {
-                led_blink(blink_win, color_win, off, -state_change);
             } else {
-                led_blink(blink_lose, color_lose, off, -state_change);
+                if (alive) led_blink(blink_win, color_win);
+                else       led_blink(blink_lose, color_lose);
             }
 
             if (received && payload.msg == msg_start_game) {
@@ -566,10 +573,10 @@ void loop() {
     int z = acc.getZAccel();
     unsigned long t = millis();
     static bool firstloop = true;
+    static int previous_broadcast = -1;
 
     if (state != oldstate) {
         D("State changed from %d to %d.", oldstate, state);
-        state_change = millis();
         oldstate = state;
     }
 
@@ -595,9 +602,15 @@ void loop() {
     // message to ourselves :)
     if (!received && rf.available()) {
         rf.read(&payload, sizeof(payload));
-        D("RECEIVED: seq=%d msg=%d", payload.seq, payload.msg);
         received = 1;
+        if (payload.msg < 100) {
+            // broadcasts; skip duplicates
+            if (payload.seq == previous_broadcast) received = 0;
+            previous_broadcast = payload.seq;
+        }
+        if (received) D("RECEIVED: seq=%d msg=%d", payload.seq, payload.msg);
     }
+
 
     if (!received) {
         received = client_loop();
