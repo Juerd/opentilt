@@ -53,9 +53,9 @@ const Blink     blink_paired = { 800, 200 };
 const Blink     blink_start  = { 200, 200 };
 const Color     color_dead   = coral;
 const Color     color_lose   = color_dead;
-const Blink     blink_lose   = { 2000, 200 };
+const Blink     blink_lose   = { 200, 2000 };
 const Color     color_win    = lightgreen;
-const Blink     blink_win    = { 500, 500 };
+const Blink     blink_win    = { 300, 300 };
 const Color     color_single = gold;  // single player mode
 
 const int pin_button = 2;   // interrupt
