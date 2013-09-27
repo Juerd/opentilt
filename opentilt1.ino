@@ -600,7 +600,7 @@ void loop() {
 
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
-    if (!received && rf.available()) {
+    while (!received && rf.available()) {
         rf.read(&payload, sizeof(payload));
         received = 1;
         if (payload.msg < 100) {
