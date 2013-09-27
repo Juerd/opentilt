@@ -189,7 +189,7 @@ enum state_enum {
     CLIENT_COMM_ERROR,
     CLIENT_HELLO, CLIENT_CONFIG, CLIENT_PAIRED,
     MASTER_SETUP, MASTER_INVITE, MASTER_GAME_SETUP,
-    GAME_START, GAME, MASTER_GAME_OVER_SETUP, GAME_OVER
+    GAME_START, GAME, GAME_OVER
 } state = CLIENT_HELLO;
 
 int oldstate = -1;
@@ -449,7 +449,6 @@ bool client_loop() {
         case MASTER_SETUP:
         case MASTER_INVITE:
         case MASTER_GAME_SETUP:
-        case MASTER_GAME_OVER_SETUP:
             break;
 
         case CLIENT_COMM_ERROR: {
