@@ -174,7 +174,6 @@ void setup() {
     acc.begin(0, 0, 0, 0, pin_acc_x, pin_acc_y, pin_acc_z);
 
     rf.begin();
-    rf.setRetries(unicast_delay, unicast_tries);
     rf.setPayloadSize(sizeof(Payload));
 
     time_heartbeat = Entropy.random(time_heartbeat_min, time_heartbeat_max);
@@ -469,10 +468,12 @@ bool client_loop() {
             break;
         }
         case CLIENT_HELLO: {
+            rf.setRetries(15, 15);  // maximum values
+
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
-            wait_until = Entropy.random(1500);  // because random is slow
+            wait_until = Entropy.random(2000);  // because random is slow
 
             led(color_setup2);
             delay(wait_until);
@@ -480,16 +481,20 @@ bool client_loop() {
             rf.openReadingPipe(0, broadcast);  // needed, but why?
             rf.openReadingPipe(1, my_addr);
             rf.startListening();
+
             param.hello.id = me;
+
             ok = send(master, msg_hello, param);
-            rf.startListening();
-            if (!ok) {
+
+            if (ok) {
+                wait_until = millis() + timeout;
+                state = CLIENT_CONFIG;
+            } else {
                 am_master = true;
                 state = MASTER_SETUP;
-                break;
             }
-            state = CLIENT_CONFIG;
-            wait_until = millis() + timeout;
+
+            rf.setRetries(unicast_delay, unicast_tries);
             break;
         }
         case CLIENT_CONFIG: {
