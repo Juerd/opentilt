@@ -14,7 +14,7 @@
 #include "opentilt1.h"
 
 // XXX master should send its value to the slaves
-const float     shock_dead      =    2;  // centiG per millisecond?
+const float     shock_dead      =    4;  // centiG per millisecond?
 
 // To start the game
 const float     shock_shake     =   10;
@@ -49,7 +49,7 @@ const Color     color_error  = red;
 const Blink     blink_error  = { 300, 200 };
 const Color     color_hello  = lightgreen;
 const Color     color_player = royalblue;
-const Blink     blink_paired = { 800, 200 };
+const Blink     blink_paired = { 1000, 1000 };
 const Blink     blink_start  = { 200, 200 };
 const Color     color_dead   = coral;
 const Color     color_lose   = color_dead;
