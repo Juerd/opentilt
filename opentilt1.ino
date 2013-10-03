@@ -56,7 +56,7 @@ const Color     color_dead   = coral;
 const Color     color_lose   = color_dead;
 const Blink     blink_lose   = { 200, 2000 };
 const Color     color_win    = lightgreen;
-const Blink     blink_win    = { 300, 300 };
+const Blink     blink_win    = { 200, 200 };
 const Color     color_single = gold;  // single player mode
 
 const int pin_button = 2;   // interrupt
@@ -478,7 +478,7 @@ bool client_loop() {
             my_addr = master + me;
 
             // random is slow
-            wait_until = Entropy.random(2000);
+            wait_until = Entropy.random(500);
             wait_until += millis();
 
             led(color_setup2);
