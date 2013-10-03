@@ -43,11 +43,12 @@ const int       time_client_gone        = 6 * time_heartbeat_max + 100;
 const int       time_error_delay        = 1000;
 
 const Color     color_setup1 = white;
-const Color     color_setup2 = cyan;
+const Color     color_setup2 = green;
+const Color     color_setup3 = orange;
 const Color     color_master = magenta;
 const Color     color_error  = red;
 const Blink     blink_error  = { 300, 200 };
-const Color     color_hello  = lightgreen;
+const Color     color_hello  = black;
 const Color     color_player = royalblue;
 const Blink     blink_paired = { 1000, 1000 };
 const Blink     blink_start  = { 200, 200 };
@@ -395,7 +396,6 @@ bool client_loop() {
     static bool alive;
     static unsigned long heartbeat_received;
     static unsigned long next_heartbeat;
-    int ok;
 
     if (received) {
         switch (payload.msg) {
@@ -468,15 +468,20 @@ bool client_loop() {
             break;
         }
         case CLIENT_HELLO: {
+            led(color_setup1);
+
+            bool ok = false;
+
             rf.setRetries(15, 15);  // maximum values
 
             me = Entropy.random(0xFFFF);
             my_addr = master + me;
 
-            wait_until = Entropy.random(2000);  // because random is slow
+            // random is slow
+            wait_until = Entropy.random(2000);
+            wait_until += millis();
 
             led(color_setup2);
-            delay(wait_until);
 
             rf.openReadingPipe(0, broadcast);  // needed, but why?
             rf.openReadingPipe(1, my_addr);
@@ -484,7 +489,8 @@ bool client_loop() {
 
             param.hello.id = me;
 
-            ok = send(master, msg_hello, param);
+            while (!ok && millis() < wait_until)
+                ok = send(master, msg_hello, param);
 
             if (ok) {
                 wait_until = millis() + timeout;
@@ -498,10 +504,8 @@ bool client_loop() {
             break;
         }
         case CLIENT_CONFIG: {
-            if (millis() >= wait_until) {
-                am_master = true;
-                state = MASTER_SETUP;
-            }
+            led(color_setup3);
+            if (millis() >= wait_until) state = CLIENT_HELLO;  // retry
             if (have_config) state = CLIENT_PAIRED;
 
             break;
