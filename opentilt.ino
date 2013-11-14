@@ -11,7 +11,7 @@
 #include "color.h"
 #include "shiv.h"
 #include "debug.h"
-#include "opentilt1.h"
+#include "opentilt.h"
 
 // XXX master should send its value to the slaves
 const float     shock_dead      =    4;  // centiG per millisecond?
@@ -222,6 +222,8 @@ bool send(unsigned long destination, uint8_t msg, union Param param) {
 
     if (!is_broadcast) rf.openReadingPipe(0, broadcast);
     rf.startListening();
+
+    zero(param);
     return ok;
 }
 
@@ -610,6 +612,7 @@ void loop() {
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
     while (!received && rf.available()) {
+        zero(payload);
         rf.read(&payload, sizeof(payload));
         received = 1;
         if (payload.msg < 100) {

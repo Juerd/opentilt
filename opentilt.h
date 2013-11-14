@@ -51,4 +51,6 @@ struct Payload {
     Param param;
 };
 
+#define zero(x) do { memset(x, 0, sizeof(x)); } while (0)
+
 // vim: ft=cpp
