@@ -1,0 +1,59 @@
+Cmp-Mod V01 Created by CvPcb (2013-jul-07)-stable date = zo 22 sep 2013 02:31:36 CEST
+
+BeginCmp
+TimeStamp = /523221F1;
+Reference = A1;
+ValeurCmp = ARDUINO_MINI;
+IdModule  = arduino_mini;
+EndCmp
+
+BeginCmp
+TimeStamp = /52322259;
+Reference = N1;
+ValeurCmp = CONN_4X2;
+IdModule  = pin_array_4x2;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232223B;
+Reference = P1;
+ValeurCmp = MMA1;
+IdModule  = PIN_ARRAY_5x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232224A;
+Reference = P2;
+ValeurCmp = MMA2;
+IdModule  = PIN_ARRAY_5x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232286D;
+Reference = P3;
+ValeurCmp = CONN_6;
+IdModule  = PIN_ARRAY-6X1;
+EndCmp
+
+BeginCmp
+TimeStamp = /523228F2;
+Reference = RB1;
+ValeurCmp = R;
+IdModule  = R1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52322904;
+Reference = RG1;
+ValeurCmp = R;
+IdModule  = R1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232290A;
+Reference = RR1;
+ValeurCmp = R;
+IdModule  = R1;
+EndCmp
+
+EndListe
