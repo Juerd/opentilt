@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="chrome=1">
-    <title>OpenTilt</title>
+    <title>Opentilt</title>
     <link rel="stylesheet" href="stylesheets/styles.css">
     <link rel="stylesheet" href="stylesheets/pygment_trac.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
@@ -12,20 +12,22 @@
       <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <style>
+    th { width: 35% }
+    </style>
 
   </head>
   <body>
 
       <header>
-        <h1>OpenTilt</h1>
+        <h1>Opentilt</h1>
         <p>Tag, you're out!</p>
       </header>
 
       <div id="banner">
         <span id="logo"></span>
 
-        <a href="https://github.com/Juerd/opentilt" class="button fork"><strong>View On GitHub</strong></a>
-        <!--
+        <a href="https://github.com/Juerd/opentilt" class="button fork"><strong>Source code on GitHub</strong></a>
         <div class="downloads">
           <span>Downloads:</span>
           <ul>
@@ -33,7 +35,6 @@
             <li><a href="https://github.com/Juerd/opentilt/tarball/master" class="button">TAR</a></li>
           </ul>
         </div>
-        -->
       </div><!-- end banner -->
 
     <div class="wrapper">
@@ -41,22 +42,241 @@
         <ul></ul>
       </nav>
       <section>
-        <p>No documentation yet. Stay tuned.</p>
 
-<p>Requirements:</p>
+<h1>About</h1>
+<a href="opentilt8-800px.jpg"><img src="opentilt8-800px.jpg" width=400 height=300></a>
+<h2>The game</h2>
+<p>
+A game of <em>Tilt</em> is played without a screen. Indoors or outdoors, but
+preferably in a dimly lit place. Whenever a player's controller moves too
+much, the player is out. The last man standing, wins the game. The controllers
+are incredibly sensitive to movement. It usually takes a few rounds to get used
+to...
+<p>
 
+
+<h2>Johann Sebastian Joust</h2>
+<p>
+<blockquote>Johann Sebastian Joust is a no-graphics, digitally-enabled
+playground game for 2 to 7 players, designed for motion controllers such as the
+PlayStation Move. The goal is to be the last player remaining. </blockquote>
+</p>
+<p>
+Opentilt was inspired by <em>Johann Sebastian Joust</em> and mimics it in
+several ways, but does deviate from the original. Most notably, music is
+completely missing in Opentilt. On the other hand, Opentilt is open source and
+can be played on cheap homebuilt hardware, with more players, and it does not
+require a laptop.
+<p>
+I saw JS Joust at OHM2013, but I had no idea what it was. It wasn't until after
+a week when I asked about the game with the coloured lights, and was told that
+it was in fact a very enjoyable game. When I learned more about the game through
+the <a href="http://www.jsjoust.com/">Johann Sebastian Joust website</a> and
+some Youtube videos, I really wanted to play that game.
+<p>
+However, it was not available for purchase and the required Playstation
+Move controllers are expensive. It looked like it needed a MacBook too, which
+I don't have either. So I decided to try and create a similar game myself, to
+see if it was as much fun as people had told me.
+<p>
+If you like Opentilt, please consider buying JS Joust when it becomes
+available. They've been developing the game since 2011 and as of November 2013,
+it's still not available for purchase, so it's probably a lot of work for them,
+and they deserve to be rewarded for inventing such a great game!
+
+<h2>About the project</h2>
+<p>
+In August 2013, the idea was conceived to make a game like JS Joust. Parts were
+ordered from China and early September, some prototypes were built. By the end
+of October, the source code was considered sufficiently stable and the hardware
+was labeled "revision 1". Most of the programming effort went into having the
+devices communicate, as the dynamics of sensing movement were implemented
+minutes after the accelerometers arrived... The hardware design was released in
+November 2013, and the source code is available on GitHub. Most of the project
+is done by Juerd Waalboer, who can be reached at #####@juerd.nl.
+<p>
+The hardware design (based on closed source off-the-shelf components) and
+software source code are licensed under the GPL license. Anyone can build it
+and play the game. If you feel like turning it into a commercial product, good
+luck. Just understand that I do not accept any responsibility and will not
+provide any free support to commercial entities. If you want a difference
+license, please contact the author.
+<p>
+Everything was designed, assembled and tested at <a
+href="https://revspace.nl/">Revelation Space</a>, the hackerspace in The Hague,
+with the help of many of its participants and visitors.
+
+<h1>Play</h1>
+<h2>Connection phase</h2>
+<p>
+One by one, turn the devices on. The first controller will be the host, or
+master controller, that the others will connect to.
+<p>
+<table>
+<tr><th style="background: magenta">steady magenta<td>Host controller</tr>
+<tr><th style="background: royalblue">blinking blue (slow)<td>Client controller</tr>
+</table>
+<h2>Starting the game</h2>
+<p>
+Once all the client controllers are connected (they should blink in synch),
+shake the host controller for a few seconds to start the game. During the game,
+or when the game is over, the shaking the host controller will restart the
+game.
+<p>
+Once the first game has been started, no new clients can connect.
+<p>
+<table>
+<tr><th style="background: royalblue">faster blinking<td>Game starts in 5 seconds</tr>
+</table>
+<h2>Winning and losing</h2>
+<p>
+The only way to win, is not to lose. If your controller is tagged (if it moves
+too much), you're out. The last one alive wins the game. Protect your own
+device and jostle those of the other players. Don't make any sudden moves!
+<p>
+Suggested house rules: always keep the controller in your hand with the light
+clearly visible, and don't interact with other players once you're out. Try not
+to injure anyone!
+<p>
+<table>
+<tr><th style="background: royalblue">steady blue<td>Still alive</tr>
+<tr><th style="background: coral">steady red<td>Dead</tr>
+<tr><th style="background: lightgreen">blinking green (fast)<td>Game over; you win!</tr>
+<tr><th style="background: coral">blinking red (pulsating)<td>Game over; you lose.</tr>
+</table>
+<h2>Single player</h2>
+<p>
+A game started without any clients, is a single player game. This makes little
+sense, because there is no way to win. However, it can be used for numerous
+creative purposes, including a simple drinking game.
+<p>
+Just like in the regular game, shake the controller to restart.
+<p>
+<table>
+<tr><th style="background: #e0ff00">blinking greenish yellow<td>Game starts in 5 seconds</tr>
+<tr><th style="background: #e0ff00">steady greenish yellow<td>Still alive</tr>
+<tr><th style="background: coral">steady red<td>Dead</tr>
+</table>
+
+<h2>Error codes</h2>
+<table>
+<tr><th style="background: red">blinking red (2 times)<td>Communication with host lost; resets at game restart</tr>
+<tr><th style="background: red">blinking red (3 times)<td>Power-on self test failed for radio module</tr>
+</table>
+
+<h1>Build (DIY)</h1>
+<p style="text-align: center">
+<a href="8xopentilt-800px.jpg"><img src="8xopentilt-800px.jpg" width=400 height=300></a>
+
+<h2>Shopping list</h2>
 <ul>
-<li>Arduino Nano v3</li>
-<li>Arduino Uno bootloader (optiboot)</li>
-<li>MMA7361</li>
-<li>nRF24l01+</li>
-<li>RF24 fork at <a href="https://github.com/gcopeland/RF24">https://github.com/gcopeland/RF24</a>
-</li>
-<li>AcceleroMMA7361 at <a href="https://code.google.com/p/mma7361-library/">https://code.google.com/p/mma7361-library/</a>
-</li>
-<li>Entropy at <a href="http://code.google.com/p/avr-hardware-random-number-generation/">http://code.google.com/p/avr-hardware-random-number-generation/</a>
-</li>
+<li>Arduino Nano v3
+<li>MMA7361 accelerometer module
+<li>nRF24l01+ digital 2,4 GHz radio module
+<li>RGB LED (common cathode)
+<li>Pingpong or beerpong ball
+<li>4 or 6 header pins
+<li>4 female jumper wires ("dupont wires")
+<li>150 &Omega; resistor (2x)
+<li>330 &Omega; resistor (1x)
+<li>40mm PVC tube (thin walls) or some other case
+<li>5V power source; suggested: small li-ion based USB "power bank"
+<li>Perf board or the Opentilt PCB
 </ul>
+
+<h2>Instructions</h2>
+<h3>Fix the Arduino Nano v3.0</h3>
+
+<p>
+Almost all the cheap Arduino Nano v3 clones have nasty bug: the TEST pin of the
+FTDI shuold be connected to GND, but is left floating. It usually takes a while
+before the issue becomes apparent. You'll have to fix this before soldering
+the Arduino to the PCB!
+<p style="text-align: center">
+<a href="fixduino-800px.jpg"><img src="fixduino-800px.jpg" width=400 height=266></a>
+<p>
+Add a blob of solder to connect pins 25 and 26 of the FT232RL chip. You may
+want to use strong magnification (10x) to make it easier, but it can definitely
+be done by hand.
+<p>
+Optionally, to conserve power, the power LED and the voltage regulator can be
+removed. The "pin 13 LED" is useful because it is also used for the SPI clock,
+which means that it'll blink when data is sent or received. Especially if you
+have a bright blue power LED, I recommend removing it because it'll be annoying
+in the dark.
+
+<h3>The circuit board</h3>
+<p style="text-align: center">
+<a href="opentilt-boards-800px.jpg"><img src="opentilt-boards-800px.jpg" width=400 height=157></a>
+<p>
+You could use the supplied kicad or gerber files for a real PCB, but perforated
+prototyping board works well too; the PCB was designed on the same 0.1" grid.
+<p>
+Don't use "female headers" or DIP sockets; the modules will come loose after
+a few hours of playing.
+
+<h3>Place the components</h3>
+<p>
+The Arduino, accelerometer and radio modules go in the obvious locations.
+Make sure you get the orientation of the radio module right.
+<p>
+The 150 &Omega; resistors are for R and G, the 330 &Omega; one is for B.
+<p>
+The BTN pins are not used, see <a href="#btn">Power button</a>.
+
+<h3>The LED</h3>
+<p>
+Clip the leads of the LED so they're just long enough for the dupont wires.
+Heat shrink, hot glue or tape the connected pins together for sturdiness.
+<p>
+Consult your supplier for the pinout; this is not the same for every RGB LED.
+If you don't know the pinout, trial and error works fine; connecting the wires
+in the wrong order will not damage the LED.
+<p>
+Drill or cut a whole in the pingpong ball and stick the LED through it. Use some
+glue to keep them together.
+
+<h3>The case</h3>
+<p>
+If you're using the USB plug for the power supply (easiest way), you'll need to
+use something to keep it plugged in. I found that tie wraps around the power
+bank, and through the mounting holes of the PCB, works very well.
+<p>
+To prevent the components from falling out of the tube's bottom end, I used
+a laser cut disc that holds the battery, and bent the tube so it couldn't get
+past that point. However, duct tape would probably work well too.
+
+<h3 id=btn>Power button</h3>
+<p>
+The game was designed with the ATMEGA328's power savings features in mind, and
+has a connection for a power button. Alas, the Arduino Nano has an FTDI chip
+that stays powered, and it would drain a battery in a few days, so a real power
+button is still needed. Instead, for the first version of Opentilt, I just kept
+the A side of the USB cable within reach. Unplug = power off.
+
+<h3>Putting it all together</h3>
+<p style="text-align: center">
+<a href="opentilt-assembled-800px.jpg"><img src="opentilt-assembled-800px.jpg" width=400 height=148></a>
+<p>
+Glue, sellotape, tie wraps, whatever comes to mind... :-)
+
+<h3>Programming the Arduino</h3>
+<p>
+Get the source code from Github, and upload it to your Arduinos.
+<p>
+If you want to
+use the power button feature, even though it doesn't really work well enough,
+you will need Optiboot or the Arduino Uno boot loader.
+
+<h3>Repeat until n &gt;= 2</h3>
+<p>
+The more, the merrier. The game can be played with as little as 2 players, but
+it's a lot more fun if you have 6 or 8.
+
+<h1>Buy</h1>
+<p>
+Opentilt is not for sale.
+
       </section>
       <footer>
         <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://twitter.com/michigangraham">mattgraham</a></small></p>
