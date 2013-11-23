@@ -1,0 +1,66 @@
+Cmp-Mod V01 Created by CvPcb (2013-jul-07)-stable date = zo 17 nov 2013 20:15:13 CET
+
+BeginCmp
+TimeStamp = /52890342;
+Reference = ACC1;
+ValeurCmp = CONN_5;
+IdModule  = PIN_ARRAY_5x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52890351;
+Reference = ACC2;
+ValeurCmp = CONN_5;
+IdModule  = PIN_ARRAY_5x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5288F956;
+Reference = APM1;
+ValeurCmp = CONN_12;
+IdModule  = pin_array_12x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5288F965;
+Reference = APM2;
+ValeurCmp = CONN_12;
+IdModule  = pin_array_12x1;
+EndCmp
+
+BeginCmp
+TimeStamp = /5289079E;
+Reference = NRF1;
+ValeurCmp = CONN_4X2;
+IdModule  = pin_array_4x2;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232286D;
+Reference = P1;
+ValeurCmp = CONN_6;
+IdModule  = PIN_ARRAY-6X1;
+EndCmp
+
+BeginCmp
+TimeStamp = /523228F2;
+Reference = RB1;
+ValeurCmp = R;
+IdModule  = R3;
+EndCmp
+
+BeginCmp
+TimeStamp = /52322904;
+Reference = RG1;
+ValeurCmp = R;
+IdModule  = R3;
+EndCmp
+
+BeginCmp
+TimeStamp = /5232290A;
+Reference = RR1;
+ValeurCmp = R;
+IdModule  = R3;
+EndCmp
+
+EndListe
