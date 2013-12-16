@@ -13,6 +13,9 @@
 #include "debug.h"
 #include "opentilt.h"
 
+#define HW_REV2  // Hardware revision
+
+
 // XXX master should send its value to the slaves
 const float     shock_dead      =    4;  // centiG per millisecond?
 
@@ -59,6 +62,7 @@ const Color     color_win    = lightgreen;
 const Blink     blink_win    = { 200, 200 };
 const Color     color_single = gold;  // single player mode
 
+#ifdef HW_REV1
 const int pin_button = 2;   // interrupt
 const int pin_led_r  = 3;   // pwm
 const int pin_led_g  = 5;   // pwm
@@ -69,6 +73,21 @@ const int pin_rf_cs  = 10;  // mosi = 11, miso = 12, clk = 13
 const int pin_acc_x  = A6;  // non-nano doesn't have A6+A7
 const int pin_acc_y  = A7;
 const int pin_acc_z  = A5;
+#endif
+
+#ifdef HW_REV2
+const int pin_button = 2;   // interrupt
+const int pin_led_r  = 5;   // pwm
+const int pin_led_g  = 6;   // pwm
+const int pin_led_b  = 9;   // pwm
+const int pin_power  = 7;   // powers 3.3V LDO for mma7361 and nrf24l01+
+const int pin_rf_ce  = 8;
+const int pin_rf_cs  = 10;  // mosi = 11, miso = 12, clk = 13
+const int pin_acc_x  = A0;  // non-nano doesn't have A6+A7
+const int pin_acc_y  = A1;
+const int pin_acc_z  = A2;
+#endif
+
 
 const float shock_dead2 = shock_dead * shock_dead;
 const float shock_shake2  = shock_shake  * shock_shake;
@@ -119,19 +138,24 @@ void led_blink(Blink pattern, Color c1, Color c2 = off) {
 void pin2_isr() {
     sleep_disable();
     detachInterrupt(0);
-}
+}g
 
 void power_down() {
     AGAIN:
+    pinMode(pin_rf_ce, INPUT);
+    digitalWrite(pin_rf_ce, LOW);
+    pinMode(pin_rf_cs, INPUT);
+    digitalWrite(pin_rf_cs, LOW);
     wdt_disable();
     sleep_enable();
     attachInterrupt(0, pin2_isr, LOW);
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    ADCSRA |= (0<<ADEN);  // disable ADC
+    ADCSRA = 0;  // disable ADC
+    PRR = B10010111;
     cli(); sleep_bod_disable(); sei();
     sleep_cpu();
     sleep_disable();
-    ADCSRA |= (1<<ADEN);  // enable ADC
+//    ADCSRA |= (1<<ADEN);  // enable ADC
     delay(5);  // workaround: sometimes millis() is 0...
     unsigned long min_time = millis() + long_press;
     delay(10);  // for more reliable readings
