@@ -27,7 +27,7 @@ const int       timeout_shake   =  500;
 
 const int       max_players     =   32;  // 4 bytes of SRAM per player!
 
-const int       long_press      = 2000;  // power off
+const int       long_press      = 1000;  // power off
 const int       timeout         = 1000;
 const int       time_start      = 4000;
 
@@ -138,7 +138,7 @@ void led_blink(Blink pattern, Color c1, Color c2 = off) {
 void pin2_isr() {
     sleep_disable();
     detachInterrupt(0);
-}g
+}
 
 void power_down() {
     AGAIN:
