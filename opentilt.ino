@@ -15,9 +15,9 @@
 
 #define HW_REV2  // Hardware revision
 
-
 // XXX master should send its value to the slaves
-const float     shock_dead      =    4;  // centiG per millisecond?
+
+const float     shock_dead = 4;
 
 // To start the game
 const float     shock_shake     =   10;
@@ -27,7 +27,8 @@ const int       timeout_shake   =  500;
 
 const int       max_players     =   32;  // 4 bytes of SRAM per player!
 
-const int       long_press      = 1000;  // power off
+const int       long_press_on   =  300;
+const int       long_press_off  = 1000;
 const int       timeout         = 1000;
 const int       time_start      = 4000;
 
@@ -157,7 +158,7 @@ void power_down() {
     sleep_disable();
 //    ADCSRA |= (1<<ADEN);  // enable ADC
     delay(5);  // workaround: sometimes millis() is 0...
-    unsigned long min_time = millis() + long_press;
+    unsigned long min_time = millis() + long_press_on;
     delay(10);  // for more reliable readings
     while (digitalRead(pin_button) == LOW && millis() < min_time);
     if (millis() < min_time) goto AGAIN;
@@ -196,7 +197,9 @@ void setup() {
 
     Entropy.Initialize();
 
-    acc.begin(0, 0, 0, 0, pin_acc_x, pin_acc_y, pin_acc_z);
+    // Negative pin numbers are ignored by hacked library
+    acc.begin(-1, -1, -1, -1, pin_acc_x, pin_acc_y, pin_acc_z);
+    acc.setSensitivity(HIGH);
 
     rf.begin();
     rf.setPayloadSize(sizeof(Payload));
@@ -486,6 +489,11 @@ bool client_loop() {
 
         case CLIENT_COMM_ERROR: {
             led_error(error_master_gone);
+            
+            // No heartbeats at all anymore: power down
+            // New heartbeat received: rejoin game when new round starts
+            
+            if (millis() > heartbeat_received + 30000) power_down();
 
             if (received && payload.msg == msg_start_game) {
                 state = GAME_START;
@@ -618,14 +626,17 @@ void loop() {
     int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
     oldx = x; oldy = y; oldz = z; oldt = t;
 
+    //D("X = %d   Y = %d   Z = %d", dx, dy, dz);
+
     if (firstloop) {
         firstloop = false;
         return;
     }
 
     shock2 = (float) (dx*dx + dy*dy + dz*dz)/dt;
+    D("%5.2f", shock2 * 100);
 
-    if (button.down(long_press)) {
+    if (button.down(long_press_off)) {
         led(off);
         while (button.down());
         digitalWrite(pin_power, LOW);
