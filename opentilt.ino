@@ -142,11 +142,15 @@ void pin2_isr() {
 }
 
 void power_down() {
-    AGAIN:
+    led(off);
+    digitalWrite(pin_power, LOW);
+
     pinMode(pin_rf_ce, INPUT);
     digitalWrite(pin_rf_ce, LOW);
     pinMode(pin_rf_cs, INPUT);
     digitalWrite(pin_rf_cs, LOW);
+
+    AGAIN:
     wdt_disable();
     sleep_enable();
     attachInterrupt(0, pin2_isr, LOW);
@@ -637,9 +641,8 @@ void loop() {
     D("%5.2f", shock2 * 100);
 
     if (button.down(long_press_off)) {
-        led(off);
+        led(off);  // visual feedback
         while (button.down());
-        digitalWrite(pin_power, LOW);
         delay(1000);  // XXX debounce
         power_down();
     }
