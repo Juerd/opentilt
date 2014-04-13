@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 
 #include <avr/wdt.h>
 #include <avr/sleep.h>
@@ -17,15 +17,18 @@
 
 // XXX master should send its value to the slaves
 
-const float     shock_dead = 4;
+const float     shock_dead      =    4;
 
 // To start the game
-const float     shock_shake     =    4;
+const float     shock_shake     =   20;
 const float     shakes_start    =    5;
 const int       time_shake      =  100;
+const int       time_shock      =  300;
 const int       timeout_shake   =  500;
+const float     vertical_shock  =   25;
 
 const int       max_players     =   32;  // 4 bytes of SRAM per player!
+const int       max_teams       =    3;  // 
 
 const int       long_press_on   =  300;
 const int       long_press_off  = 1000;
@@ -37,7 +40,7 @@ const int       broadcast_delay =    0;
 const int       unicast_tries   =   15;
 const int       unicast_delay   =    0;
 
-const int       delay_main_loop =    5;
+const int       delay_main_loop =    2;
 
 const int       time_heartbeat_master   = 1000;
 const int       time_heartbeat_min      =  400;
@@ -46,14 +49,15 @@ const int       time_master_gone        = 4500;
 const int       time_client_gone        = 6 * time_heartbeat_max + 100;
 const int       time_error_delay        = 1000;
 
-const Color     color_setup1 = white;
-const Color     color_setup2 = green;
+const Color     color_setup1 = gray50;
+const Color     color_setup2 = white;
 const Color     color_setup3 = orange;
 const Color     color_master = magenta;
+const Blink     blink_invite = { 500, 500 };
 const Color     color_error  = red;
 const Blink     blink_error  = { 300, 200 };
 const Color     color_hello  = black;
-const Color     color_player = royalblue;
+const Color     color_player[max_teams] = { blue, yellow, green };
 const Blink     blink_paired = { 1000, 1000 };
 const Blink     blink_start  = { 200, 200 };
 const Color     color_dead   = firebrick;
@@ -61,7 +65,7 @@ const Color     color_lose   = color_dead;
 const Blink     blink_lose   = { 200, 2000 };
 const Color     color_win    = lightgreen;
 const Blink     blink_win    = { 200, 200 };
-const Color     color_single = gold;  // single player mode
+const Color     color_single = white;  // single player mode
 
 #ifdef HW_REV1
 const int pin_button = 2;   // interrupt
@@ -91,6 +95,7 @@ const int pin_acc_z  = A2;
 
 
 const float shock_dead2 = shock_dead * shock_dead;
+const float shock_shake2 = shock_shake * shock_shake;
 
 static int time_heartbeat = time_heartbeat_max;
 static unsigned long master    = 0x69690000L;
@@ -108,6 +113,7 @@ static struct {
     AcceleroMMA7361 acc;
     float shock2;
     int dx, dy, dz, dt;
+    unsigned int shakes;
 
     void init() {
         // Negative pin numbers are ignored by hacked library
@@ -127,6 +133,7 @@ static struct {
 
         dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
         oldx = x; oldy = y; oldz = z; oldt = t;
+
     }
 
     bool shock_3d(float threshold2) {
@@ -134,16 +141,24 @@ static struct {
         return shock2 > threshold2;
     }
 
-    bool vertical_shock(float threshold) {  // vertical
-        float shock = (float) dy / dt;
-        return shock > threshold;
+    bool vertical_shock(float threshold) {
+        static unsigned long last_vertical_shock = 0;
+
+        if (millis() - last_vertical_shock < time_shock) return false;
+
+        float shock = (float) abs(dy) / dt;
+        if (shock > threshold) {
+            shakes = 0;
+            last_vertical_shock = millis();
+            return true;
+        }
+        return false;
     }
 
-    bool vertical_shake() {
+    bool shake() {
         static unsigned long last_shake = 0;
-        static unsigned int shakes;
 
-        if (vertical_shock(shock_shake) && last_shake < millis() - time_shake) {
+        if (shock_3d(shock_shake2) && last_shake < millis() - time_shake) {
             last_shake = millis();
 
             if (++shakes >= shakes_start) {
@@ -153,6 +168,7 @@ static struct {
         }
 
         if (last_shake < millis() - timeout_shake) shakes = 0;
+
         return false;
     }
 } motion;
@@ -313,6 +329,7 @@ bool master_loop() {
     static unsigned long wait_until = 0;
     static unsigned long alive[ max_players ];
     static unsigned long next_heartbeat = millis() + time_heartbeat;
+    static int teams = 1;
     int i;
 
     if (millis() > next_heartbeat) {
@@ -339,6 +356,8 @@ bool master_loop() {
 
             D("I am master! prefix=%08lx free=%d", prefix, get_free_memory());
 
+            wait_until = 0;
+
             state = MASTER_INVITE;
 
             break;
@@ -347,30 +366,45 @@ bool master_loop() {
             if (received && payload.msg == msg_hello) {
                 delay(10);
                 param.config.id    = num_players;
-                param.config.color = color_player;
+                int team = num_players % teams;
+                param.config.color = color_player[ teams - team - 1 ];
                 param.config.prefix = prefix;
                 send(
                     master + payload.param.hello.id,
                     msg_config,
                     param
                 );
+                num_players++;
                 led(color_hello);
                 wait_until = millis() + 500;
-                num_players++;
             }
 
-            if (wait_until && millis() >= wait_until) {
-                led(color_master);
+            if (millis() >= wait_until) {
+                led_blink(blink_paired, color_player[teams - 1], color_master);
             }
 
-            if (motion.vertical_shake()) {
+            if (motion.vertical_shock(vertical_shock)) {
+                if (num_players > teams || (teams == max_teams && num_players > 1)) {
+                    led(color_error);
+                    wait_until = millis() + 1000;
+                    break;
+                }
+                teams++;
+                if (teams > max_teams) teams = 1;
+
+                led(color_player[teams - 1]);
+                wait_until = millis() + 1000;
+                break;
+            }
+
+            if (motion.shake()) {
                 state = MASTER_GAME_SETUP;
 
                 param.config.id = 0;
                 param.config.color =
                     num_players == 1
                     ? color_single
-                    : color_player;
+                    : color_player[ teams - 1 ];
                 payload.msg = msg_config;
                 payload.param = param;
                 return true;
@@ -400,7 +434,7 @@ bool master_loop() {
         }
         case GAME:
         case GAME_START: {
-            if (motion.vertical_shake()) {
+            if (motion.shake()) {
                 state = MASTER_GAME_SETUP;
                 break;
             }
@@ -423,18 +457,24 @@ bool master_loop() {
 
             if (num_players < 2) break;  // No winners in single player :)
 
-            int num_alive = 0;
-            unsigned long survivor;
+            unsigned char num_alive = 0;
+            unsigned char num_alive_per_team[ max_teams ];
+            memset(num_alive_per_team, 0, sizeof(num_alive_per_team));
+            unsigned char survivor;
+            unsigned char surviving_team;
             for (i = 0; i < num_players; i++) {
                 if (i ? (alive[i] > millis() - time_client_gone) : alive[i]) {
                     num_alive++;
+                    num_alive_per_team[ i % teams ]++;
                     survivor = i;
+                    surviving_team = i % teams;
                 } else if (alive[i]) {
                     D("%d timed out: seen=%d uptime=%d", alive[i], millis());
                     alive[i] = 0;
                 }
             }
-            if (num_alive == 1) {
+
+            if (teams == 1 && num_alive == 1) {
                 if (survivor == 0) {  // that's me!
                     send(broadcast, msg_game_over, param);
                     payload.msg = msg_game_over_you_win;
@@ -444,12 +484,32 @@ bool master_loop() {
                     send(broadcast, msg_game_over, param);
                     state = GAME_OVER;
                 }
+            } else if (teams > 1) {
+                int num_teams_alive = 0;
+                for (i = 0; i < teams; i++) {
+                    if (num_alive_per_team[i]) num_teams_alive++;
+                    D("team %d alive %d", i, num_alive_per_team[i]);
+                }
+
+                if (num_teams_alive == 1) {
+                    for (i = surviving_team; i < num_players; i += teams) {
+                        send(prefix + i, msg_game_over_you_win, param);
+                    }
+                    send(broadcast, msg_game_over, param);
+
+                    if (surviving_team == 0) {  // includes me!
+                        payload.msg = msg_game_over_you_win;
+                        return true;
+                    }
+                    state = GAME_OVER;
+                }
             }
+
 
             break;
         }
         case GAME_OVER: {
-            if (motion.vertical_shake()) {
+            if (motion.shake()) {
                 state = MASTER_GAME_SETUP;
             }
 
