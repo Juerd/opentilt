@@ -20,7 +20,7 @@
 const float     shock_dead = 4;
 
 // To start the game
-const float     shock_shake     =   10;
+const float     shock_shake     =    4;
 const float     shakes_start    =    5;
 const int       time_shake      =  100;
 const int       timeout_shake   =  500;
@@ -91,7 +91,6 @@ const int pin_acc_z  = A2;
 
 
 const float shock_dead2 = shock_dead * shock_dead;
-const float shock_shake2  = shock_shake  * shock_shake;
 
 static int time_heartbeat = time_heartbeat_max;
 static unsigned long master    = 0x69690000L;
@@ -101,12 +100,63 @@ static Payload payload;
 static Param param;  // for sending
 static long int my_addr;
 static unsigned int me;
-static float shock2;
 static bool am_master = false;
 static unsigned long prefix;
 static signed long blinksync = 0;
 
-AcceleroMMA7361 acc;
+static struct {
+    AcceleroMMA7361 acc;
+    float shock2;
+    int dx, dy, dz, dt;
+
+    void init() {
+        // Negative pin numbers are ignored by hacked library
+        acc.begin(-1, -1, -1, -1, pin_acc_x, pin_acc_y, pin_acc_z);
+        acc.setSensitivity(HIGH);
+
+        update();
+    }
+
+    void update() {
+        static int oldx = 0, oldy = 0, oldz = 0;
+        static unsigned long oldt;
+        int x = acc.getXAccel();
+        int y = acc.getYAccel();
+        int z = acc.getZAccel();
+        unsigned long t = millis();
+
+        dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
+        oldx = x; oldy = y; oldz = z; oldt = t;
+    }
+
+    bool shock_3d(float threshold2) {
+        float shock2 = (float) (dx*dx + dy*dy + dz*dz) / dt;
+        return shock2 > threshold2;
+    }
+
+    bool vertical_shock(float threshold) {  // vertical
+        float shock = (float) dy / dt;
+        return shock > threshold;
+    }
+
+    bool vertical_shake() {
+        static unsigned long last_shake = 0;
+        static unsigned int shakes;
+
+        if (vertical_shock(shock_shake) && last_shake < millis() - time_shake) {
+            last_shake = millis();
+
+            if (++shakes >= shakes_start) {
+                shakes = 0;
+                return true;
+            }
+        }
+
+        if (last_shake < millis() - timeout_shake) shakes = 0;
+        return false;
+    }
+} motion;
+
 RF24            rf(pin_rf_ce, pin_rf_cs);
 TimedButton     button(pin_button);
 
@@ -201,9 +251,7 @@ void setup() {
 
     Entropy.Initialize();
 
-    // Negative pin numbers are ignored by hacked library
-    acc.begin(-1, -1, -1, -1, pin_acc_x, pin_acc_y, pin_acc_z);
-    acc.setSensitivity(HIGH);
+    motion.init();
 
     rf.begin();
     rf.setPayloadSize(sizeof(Payload));
@@ -258,24 +306,6 @@ bool send(unsigned long destination, uint8_t msg, union Param param) {
     return ok;
 }
 
-
-bool master_check_shake() {
-    static unsigned long last_shake = 0;
-    static unsigned int shakes;
-    if (shock2 > shock_shake2 && last_shake < millis() - time_shake) {
-        last_shake = millis();
-
-        if (++shakes >= shakes_start) {
-            shakes = 0;
-
-            state = MASTER_GAME_SETUP;
-            return true;
-        }
-    }
-
-    if (last_shake < millis() - timeout_shake) shakes = 0;
-    return false;
-}
 
 bool master_loop() {
     static int num_players = 1;
@@ -332,7 +362,9 @@ bool master_loop() {
                 led(color_master);
             }
 
-            if (master_check_shake()) {
+            if (motion.vertical_shake()) {
+                state = MASTER_GAME_SETUP;
+
                 param.config.id = 0;
                 param.config.color =
                     num_players == 1
@@ -367,7 +399,10 @@ bool master_loop() {
         }
         case GAME:
         case GAME_START: {
-            if (master_check_shake()) break;
+            if (motion.vertical_shake()) {
+                state = MASTER_GAME_SETUP;
+                break;
+            }
 
             if (received && payload.msg == msg_status) {
                 int id = payload.param.status.id;
@@ -413,7 +448,9 @@ bool master_loop() {
             break;
         }
         case GAME_OVER: {
-            master_check_shake();
+            if (motion.vertical_shake()) {
+                state = MASTER_GAME_SETUP;
+            }
 
             break;
         }
@@ -576,7 +613,7 @@ bool client_loop() {
             }
 
             led(alive ? my_color : color_dead);
-            if (alive && shock2 > shock_dead2) {
+            if (alive && motion.shock_3d(shock_dead2)) {
                 alive = false;
 
                 param.status.id    = me;
@@ -613,39 +650,20 @@ bool client_loop() {
 }
 
 void loop() {
-    static int oldx = 0, oldy = 0, oldz = 0;
-    static unsigned long oldt;
-    int x = acc.getXAccel();
-    int y = acc.getYAccel();
-    int z = acc.getZAccel();
-    unsigned long t = millis();
-    static bool firstloop = true;
     static int previous_broadcast = -1;
 
     if (state != oldstate) {
         D("State changed from %d to %d.", oldstate, state);
         oldstate = state;
     }
-
-    int dx = x - oldx, dy = y - oldy, dz = z - oldz, dt = t - oldt;
-    oldx = x; oldy = y; oldz = z; oldt = t;
-
-    //D("X = %d   Y = %d   Z = %d", dx, dy, dz);
-
-    if (firstloop) {
-        firstloop = false;
-        return;
-    }
-
-    shock2 = (float) (dx*dx + dy*dy + dz*dz)/dt;
-    D("%5.2f", shock2 * 100);
-
     if (button.down(long_press_off)) {
         led(off);  // visual feedback
         while (button.down());
         delay(1000);  // XXX debounce
         power_down();
     }
+
+    motion.update();
 
     // If received is already 1, it's because we're master and sending a
     // message to ourselves :)
