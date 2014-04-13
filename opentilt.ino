@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 
 #include <avr/wdt.h>
 #include <avr/sleep.h>
@@ -21,14 +21,14 @@ const float     shock_dead      =    4;
 
 // To start the game
 const float     shock_shake     =   20;
-const float     shakes_start    =    5;
+const int       shakes_start    =    5;
 const int       time_shake      =  100;
 const int       time_shock      =  300;
 const int       timeout_shake   =  500;
 const float     vertical_shock  =   25;
 
 const int       max_players     =   32;  // 4 bytes of SRAM per player!
-const int       max_teams       =    3;  // 
+const int       max_teams       =    3;  // 4 bytes of SRAM per team!
 
 const int       long_press_on   =  300;
 const int       long_press_off  = 1000;
@@ -497,6 +497,11 @@ bool master_loop() {
                     }
                     send(broadcast, msg_game_over, param);
 
+                    // Hack: just send these again in case some were not rcvd.
+                    for (i = surviving_team; i < num_players; i += teams) {
+                        send(prefix + i, msg_game_over_you_win, param);
+                    }
+
                     if (surviving_team == 0) {  // includes me!
                         payload.msg = msg_game_over_you_win;
                         return true;
@@ -699,7 +704,9 @@ bool client_loop() {
                 else       led_blink(blink_lose, color_lose);
             }
 
-            if (received && payload.msg == msg_start_game) {
+            if (received && payload.msg == msg_game_over_you_win) {
+                alive = true;
+            } else if (received && payload.msg == msg_start_game) {
                 state = GAME_START;
                 wait_until = millis() + payload.param.start_game.time;
             }
