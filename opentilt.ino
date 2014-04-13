@@ -161,9 +161,10 @@ RF24            rf(pin_rf_ce, pin_rf_cs);
 TimedButton     button(pin_button);
 
 void led(Color color) {
+    // Compensate for lowsy red led
     analogWrite(pin_led_r, color.r);
-    analogWrite(pin_led_g, color.g);
-    analogWrite(pin_led_b, color.b);
+    analogWrite(pin_led_g, color.g >> 1);
+    analogWrite(pin_led_b, color.b >> 1);
 }
 
 void led_error(int blinks) {
