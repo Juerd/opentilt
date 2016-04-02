@@ -14,6 +14,8 @@
 #include "opentilt.h"
 
 #define HW_REV2  // Hardware revision
+#define CA_LED
+
 
 // XXX master should send its value to the slaves
 
@@ -98,6 +100,7 @@ const float shock_dead2 = shock_dead * shock_dead;
 const float shock_shake2 = shock_shake * shock_shake;
 
 static int time_heartbeat = time_heartbeat_max;
+static int channel = 125;
 static unsigned long master    = 0x69690000L;
 static unsigned long broadcast = 0x96969696L;
 static bool received = 0;
@@ -177,10 +180,16 @@ RF24            rf(pin_rf_ce, pin_rf_cs);
 TimedButton     button(pin_button);
 
 void led(Color color) {
-    // Compensate for lowsy red led
-    analogWrite(pin_led_r, color.r);
-    analogWrite(pin_led_g, color.g >> 1);
-    analogWrite(pin_led_b, color.b >> 1);
+    #ifdef CA_LED
+        analogWrite(pin_led_r, 255 - color.r);
+        analogWrite(pin_led_g, 255 - color.g);
+        analogWrite(pin_led_b, 255 - color.b);
+    #else
+        // Common cathode. Assume lame LED with weak red.
+        analogWrite(pin_led_r, color.r);
+        analogWrite(pin_led_g, color.g >> 1);
+        analogWrite(pin_led_b, color.b >> 1);
+    #endif
 }
 
 void led_error(int blinks) {
@@ -271,6 +280,7 @@ void setup() {
     motion.init();
 
     rf.begin();
+    rf.setChannel(channel);
     rf.setPayloadSize(sizeof(Payload));
 
     time_heartbeat = Entropy.random(time_heartbeat_min, time_heartbeat_max);
